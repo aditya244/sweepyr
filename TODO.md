@@ -9,6 +9,23 @@
 
 ## Open
 
+### Deep Clean needs its own scan/backlog rules
+- **Added:** 2026-09-11
+- **Status:** Not started
+- **Why deferred:** Raised while designing `MAX_UNACTIONED_BACKLOG`
+  (see `lib/tierLimits.js`) — the 1000-email backlog cap makes sense
+  for regular usage, but Deep Clean's entire premise is processing a
+  large backlog (up to 50,000 emails) in one sitting. A flat backlog
+  cap could actively block the exact workflow that tier is meant to
+  enable. Explicitly parked rather than guessed at, since it needs its
+  own thought-out design, not a bolt-on exception.
+- **What it needs:** Decide whether Deep Clean gets a much higher (or
+  no) backlog cap, a different scan flow entirely (e.g. bulk-scan then
+  bulk-categorize without requiring review between batches), or
+  something else. Revisit once Deep Clean is actually being built
+  (Razorpay billing/Phase 7 territory).
+- **Unblocks when:** Deep Clean tier implementation begins.
+
 ### Replace placeholder contact email in legal pages
 - **Added:** 2026-08-09
 - **Where:** `app/privacy/page.js:160`, `app/terms/page.js:160`

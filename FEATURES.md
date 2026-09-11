@@ -22,6 +22,32 @@
 
 ## Shipped
 
+### Net-new quota metering + backlog cap
+- **Shipped:** 2026-09-11
+- **What it is:** Quota consumption now charges only net-new emails
+  actually classified this scan, not raw emails fetched (which
+  previously included re-fetches of duplicates already scanned
+  before). To prevent the abuse this opens up (rescanning repeatedly
+  for near-zero quota cost), a new guard blocks scanning once a user
+  has 1,000+ categorized-but-unactioned emails sitting unreviewed —
+  applies to every tier, not just testers.
+- **Why:** Found via tester testing — clicking "scan 200" could show
+  the displayed processed count go up by far less than 200 (duplicates
+  don't recount), while the full 200 was still charged against quota.
+  For a paying user on a monthly email allowance, that mismatch is a
+  real trust problem, not just a display quirk.
+- **Impacted pages (test these):** Dashboard mailbox card — rescan an
+  inbox with few new emails and confirm quota drops by the *displayed*
+  processed count, not the raw scan size. Build up 1,000+ unactioned
+  categorized emails (or lower `MAX_UNACTIONED_BACKLOG` temporarily to
+  test) and confirm scanning blocks with a review-first message.
+- **Before:** Quota charged for raw fetches (including duplicates);
+  no guard against repeated no-op rescanning.
+- **After:** Quota, "Your Mailbox," and "Your Progress" all agree on
+  the same number. Endless rescanning is blocked by a backlog check
+  instead, which doubles as a genuinely useful "go review your inbox"
+  nudge rather than an arbitrary rate limit.
+
 ### Fix: scans silently under-counted with no way to tell why
 - **Shipped:** 2026-09-11
 - **What it is:** Found during tester credit testing — repeated scans
