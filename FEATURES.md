@@ -22,6 +22,34 @@
 
 ## Shipped
 
+### Fix: scans silently under-counted with no way to tell why
+- **Shipped:** 2026-09-11
+- **What it is:** Found during tester credit testing — repeated scans
+  in quick succession returned inconsistent, lower-than-requested
+  email counts (e.g. 100, then 21, then 0 successfully fetched) with
+  zero explanation anywhere. Two compounding causes fixed:
+  1. `getMessageIds` only made a single `messages.list` call — Gmail
+     can return fewer than requested in one page even when more exist
+     (label filtering happens after the page-size cap server-side).
+     Now follows `nextPageToken` until it actually collects the
+     requested count or runs out of pages.
+  2. Failed metadata fetches during scanning were silently dropped —
+     `Promise.allSettled` filtered to successes only, with no logging
+     at all. A whole chunk could fail (e.g. Gmail API rate limiting
+     from back-to-back scans) and the only visible symptom was "fewer
+     emails than expected," undiagnosable from the UI or server logs.
+- **Why:** Directly blocked understanding tester credit consumption —
+  "why did this scan only process 21 emails" had no answer before this.
+- **Impacted pages (test these):** Run several scans back-to-back on
+  an account with a large-ish inbox; watch the scan progress message —
+  should now say "Scanned X emails (N failed to fetch — see below)"
+  if any fetches fail, instead of just a lower number with no context.
+- **Before:** Silent, inconsistent under-counting with zero diagnostic
+  signal.
+- **After:** Either the pagination fix resolves it outright, or a
+  failure actually shows up in the progress message and Sentry
+  (`logWarning`) with a sample error to investigate.
+
 ### Self-serve tester credit top-ups
 - **Shipped:** 2026-09-11
 - **What it is:** Testers now see "N scan credits remaining" (not an
