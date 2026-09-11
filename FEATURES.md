@@ -22,6 +22,43 @@
 
 ## Shipped
 
+### Admin AI usage report: date ranges + CSV/TXT export
+- **Shipped:** 2026-09-11
+- **What it is:** `/admin/ai-usage` now has Daily/Weekly/Monthly/All-time
+  tabs (rolling 24h/7d/30d windows, via `?range=` URL param) and two
+  download buttons (⬇ CSV, ⬇ TXT) that export whatever range is
+  currently selected.
+- **Why:** Requested to make the AI-cost domain data easier to work
+  with over time (spot trends, not just an all-time snapshot) and to
+  get it out of the browser for offline analysis/sharing.
+- **Impacted pages (test these):** `/admin/ai-usage` — click each tab,
+  confirm the numbers change appropriately (fewer/more depending on
+  range). Click both download buttons for a couple of ranges, confirm
+  the downloaded file's range/numbers match what's on screen.
+- **Before:** All-time only, view-in-browser only.
+- **After:** Four time windows, downloadable as CSV or plain text via
+  a new `GET /api/admin/ai-usage-export` endpoint (same `ADMIN_EMAILS`
+  gate as the page itself).
+- **Implementation note:** date filtering uses `updatedAt` as a proxy
+  for "when was this classified" — there's no dedicated classification
+  timestamp on `Email`, but `updatedAt` is set exactly when the
+  classification stage writes its result, so it's a close match in
+  practice.
+
+### Live monitoring feed hidden (Phase 6 not built)
+- **Shipped:** 2026-09-11
+- **What it is:** `<MonitoringFeed>` commented out of the dashboard —
+  it only ever showed an empty "Watching your inbox" placeholder since
+  the live monitoring backend doesn't exist yet.
+- **Why:** Requested to stop showing empty space on the dashboard for
+  a feature that isn't live yet.
+- **Impacted pages (test these):** Dashboard home — confirm no gap or
+  empty section appears where the feed used to be.
+- **Before:** Always-empty "📡 Watching your inbox" placeholder shown
+  to every user.
+- **After:** Nothing shown. Commented, not deleted — trivial to bring
+  back once Phase 6 actually exists.
+
 ### Net-new quota metering + backlog cap
 - **Shipped:** 2026-09-11
 - **What it is:** Quota consumption now charges only net-new emails
