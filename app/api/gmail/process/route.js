@@ -5,7 +5,7 @@ import User from "../../../../models/User";
 import Email from "../../../../models/Email";
 import { getMessageIds, getEmailMetadata } from "../../../../lib/gmail";
 import { classifyEmail } from "../../../../lib/classifier/index";
-import { logError, logInfo } from '../../../../lib/logger';
+import { logError, logInfo, logWarning } from '../../../../lib/logger';
 import { getEffectiveLimit, ensureFreshUsage } from '../../../../lib/tierLimits';
 
 export async function GET(request) {
@@ -98,6 +98,7 @@ export async function GET(request) {
 
       // ── Stage 2: Fetch metadata in batches of 50 ───────────
       const emails = [];
+      let failedCount = 0;
       const metadataBatchSize = 50;
 
       for (let i = 0; i < messageIds.length; i += metadataBatchSize) {
@@ -111,8 +112,24 @@ export async function GET(request) {
         const successful = results
           .filter((r) => r.status === "fulfilled")
           .map((r) => r.value);
+        const failed = results.filter((r) => r.status === "rejected");
 
         emails.push(...successful);
+        failedCount += failed.length;
+
+        // Previously silent — a chunk could fail entirely (e.g. Gmail API
+        // rate limiting on rapid back-to-back scans) with zero visibility,
+        // making "why did this scan process fewer emails than expected"
+        // undiagnosable. Now logged with a sample error to actually see why.
+        if (failed.length > 0) {
+          logWarning("Some emails failed to fetch during scan", {
+            route: "/api/gmail/process",
+            userId: session?.user?.id,
+            chunkSize: chunk.length,
+            failedInChunk: failed.length,
+            sampleError: failed[0].reason?.message || String(failed[0].reason),
+          });
+        }
 
         // Save to MongoDB
         for (const email of successful) {
@@ -139,9 +156,13 @@ export async function GET(request) {
 
       send({
         stage: "scanning",
-        message: `Scanned ${emails.length} emails. Starting classification...`,
+        message:
+          failedCount > 0
+            ? `Scanned ${emails.length} emails (${failedCount} failed to fetch — see below). Starting classification...`
+            : `Scanned ${emails.length} emails. Starting classification...`,
         progress: total,
         total,
+        failedCount,
       });
 
       // Meter usage against the monthly cleanup limit — counts emails
