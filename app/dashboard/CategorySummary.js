@@ -166,6 +166,15 @@ export default function CategorySummary({
   const batchOptions = TIER_BATCH_OPTIONS[tier] || [100]
   const [batchSize, setBatchSize] = useState(batchOptions[batchOptions.length - 1])
 
+  // tier arrives asynchronously (fetched from /api/user/status after mount),
+  // starting as 'free' before flipping to the real value — batchSize's
+  // useState above only sees whatever tier was at first render and never
+  // re-syncs on its own, so without this a tester's batch size gets stuck
+  // at the free-tier default (100) instead of their real option (200).
+  useEffect(() => {
+    setBatchSize(batchOptions[batchOptions.length - 1]);
+  }, [tier]);
+
   useEffect(() => {
     loadExistingSummary();
   }, []);
@@ -244,11 +253,15 @@ export default function CategorySummary({
         }
 
         if (data.stage === "done") {
-          setClassifyResult({
-            summary: data.summary,
-            layerStats: data.layerStats,
-            classified: data.classified,
-          });
+          // Re-fetch the true cumulative summary rather than using
+          // data.summary directly — that's only this run's classification
+          // delta (e.g. just 1 email on a rescan that found mostly
+          // already-processed emails), and setting classifyResult straight
+          // from it was overwriting the whole dashboard down to whatever
+          // tiny amount this specific scan classified, discarding every
+          // category previously shown even though the database still had
+          // everything correctly categorized.
+          loadExistingSummary();
           setScanDone(true);
           setProgress(null);
           eventSource.close();
