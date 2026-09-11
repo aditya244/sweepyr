@@ -22,6 +22,46 @@
 
 ## Shipped
 
+### Tester tier + whitelist
+- **Shipped:** 2026-09-11
+- **What it is:** A new `tester` tier for whitelisting friends during the
+  testing phase — a one-time 1000-email allocation (5 scans of 200,
+  fixed batch size) that does **not** renew monthly like every other
+  tier. Add an email to the `TESTER_EMAILS` env var and it's
+  auto-assigned on their next sign-in.
+- **Why:** You want to give testing-phase friends more than the free
+  tier's 100/month, but in bounded, non-recurring chunks — not an
+  ongoing subscription-like allowance.
+- **Impacted pages (test these):** Sign in with a whitelisted email →
+  dashboard should show "Tester Plan" and a 200-email-only batch
+  selector. Run 5 scans → the 6th should show the same upgrade-style
+  quota-exhausted message as free tier, and it should **not** clear
+  after 30 days the way free/pro/annual do.
+- **Before:** No way to grant anyone more than the standard tier limits
+  without building real billing.
+- **After:** Add an email to one env var, done.
+
+### AI usage report (admin-only)
+- **Shipped:** 2026-09-11
+- **What it is:** `/admin/ai-usage`, gated to emails in `ADMIN_EMAILS` —
+  shows the rules/domain/AI/user-corrected classification split
+  across all users, plus a table of every domain that's hit the AI
+  layer with its share of total AI volume.
+- **Why:** To find which senders are costing real Gemini API calls and
+  are common enough to be worth hardcoding into
+  `lib/classifier/rules.js`'s `KNOWN_DOMAINS` — any domain appearing
+  in this report is, by definition, one the rule engine doesn't handle
+  yet. The underlying data already existed on every `Email` document
+  (`classificationSource`, `from`); this just makes it visible without
+  hand-writing MongoDB aggregation queries each time.
+- **Impacted pages (test these):** `/admin/ai-usage` — as a non-admin,
+  should redirect to `/`. As an admin (email in `ADMIN_EMAILS`), should
+  show the summary tiles and domain table.
+- **Before:** No way to see this without opening MongoDB Atlas and
+  writing an aggregation pipeline by hand.
+- **After:** A bookmarkable page, viewable from anywhere you're signed
+  in as an admin.
+
 ### Build/deploy versioning
 - **Shipped:** 2026-08-10
 - **What it is:** Every deployment now exposes what commit, branch, and

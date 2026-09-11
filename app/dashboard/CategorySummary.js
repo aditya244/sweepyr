@@ -88,6 +88,10 @@ const TIER_BATCH_OPTIONS = {
   pro:       [100, 200, 500],
   annual:    [100, 200, 500, 1000],
   deepclean: [100, 500, 1000, 2500, 5000],
+  // Fixed at 200, not a menu — this is what makes 1000 total (TIER_LIMITS.tester)
+  // behave like "5 discrete credits" rather than a flexible pool testers
+  // could split however they want.
+  tester:    [200],
 }
 
 const TIER_LABELS = {
@@ -95,6 +99,7 @@ const TIER_LABELS = {
   pro:       'Pro',
   annual:    'Annual',
   deepclean: 'Deep Clean',
+  tester:    'Tester',
 }
 
 export default function CategorySummary({
