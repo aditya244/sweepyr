@@ -26,9 +26,11 @@ export default async function AiUsagePage() {
   return (
     <div
       style={{
+        minHeight: '100vh',
+        backgroundColor: '#ffffff',
         maxWidth: '900px',
-        margin: '40px auto',
-        padding: '0 24px 80px',
+        margin: '0 auto',
+        padding: '40px 24px 80px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
