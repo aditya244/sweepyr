@@ -93,6 +93,14 @@
   - A toast UI component with a 10-second countdown + undo button, wired
     into all three action-completion sites: category actions and group
     actions in `CategoryDetail.js`, and feed actions in `MonitoringFeed.js`.
+  - **2026-09-12 update:** a plain (non-countdown) toast component is
+    being added now for the "No Action Needed" confirmation — this undo
+    feature should reuse/extend that component rather than building a
+    second one. Also needs to cover the new "No Action Needed" action
+    specifically: reversing it just means clearing `actionTaken` and
+    restoring `category` (it never touched Gmail, so there's no Gmail-side
+    reversal for this one action type — simpler than undoing archive/
+    trash/label).
 - **Unblocks when:** Picked up in a future round — no external blocker,
   just sequenced behind lower-complexity items in this batch.
 
