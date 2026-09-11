@@ -22,6 +22,49 @@
 
 ## Shipped
 
+### Skip re-fetching known emails, plus "No Action Needed"
+- **Shipped:** 2026-09-12
+- **What it is:** Two changes addressing the same root problem —
+  repeated scans kept re-examining the same familiar emails instead of
+  finding genuinely new ones:
+  1. **Scanning now skips messages we already have on file.** Previously
+     every scan re-fetched metadata for whatever sat in the Gmail
+     inbox, regardless of whether we'd already scanned it before —
+     since scanning/classifying never removes anything from the actual
+     Gmail inbox (only archive/trash do), the same messages kept
+     reappearing every scan. Now pages through the inbox checking each
+     page against what's already known, only fetching metadata for
+     messages never seen before. "Scan 200" now means "up to 200
+     messages new to us," not "the top 200 in my inbox regardless of
+     familiarity."
+  2. **New "No Action Needed" action** (category-level button, and in
+     the sender-group `•••` menu) — Gmail-inert, same as Reclassify.
+     Marks emails as reviewed without touching Gmail, so they stop
+     counting toward the unactioned backlog and stop being surfaced
+     for review. Confirmed via a small teal toast bar (not a modal),
+     e.g. *"12 emails marked as reviewed — they won't be flagged again
+     in future scans."*
+- **Why:** Discovered via tester testing — a user who reviews a
+  category but doesn't want to archive/trash/label it (e.g. "this is
+  all fine as-is") had no way to say so, so those emails kept
+  re-appearing as backlog and getting re-fetched on every future scan.
+- **Impacted pages (test these):** Category detail — the new "✓ No
+  Action Needed" button at category level and in the group `•••`
+  menu; confirm the toast appears and the emails disappear from the
+  category view. Then rescan and confirm previously-scanned emails
+  (marked or not) aren't re-fetched — check the "Found N new emails"
+  scan progress message reflects only genuinely new messages.
+- **Before:** Every scan re-fetched the same familiar messages; no way
+  to mark "reviewed, no action needed" short of literally archiving.
+- **After:** Scans find what's actually new. Reviewing something and
+  deciding it needs no Gmail action is now a first-class action.
+- **Scalability note:** the "already known" check reuses the existing
+  `{userId, messageId}` compound index (built for duplicate
+  prevention), batched one query per Gmail page rather than one query
+  per message — so it doesn't slow down as total users or total scans
+  grow. A hard cap (5,000 messages examined per scan request) bounds
+  worst-case latency for a large, mostly-already-known inbox.
+
 ### Admin AI usage report: date ranges + CSV/TXT export
 - **Shipped:** 2026-09-11
 - **What it is:** `/admin/ai-usage` now has Daily/Weekly/Monthly/All-time
