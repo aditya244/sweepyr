@@ -124,6 +124,7 @@ export default function CategorySummary({
   onStatsRefresh,
 }) {
   const [limitReached, setLimitReached] = useState(false);
+  const [backlogMessage, setBacklogMessage] = useState(null);
   const [grantingCredit, setGrantingCredit] = useState(false);
   const outOfQuota = limitReached || (usage && usage.remaining <= 0);
   const testerCreditSize = TIER_BATCH_OPTIONS.tester[0];
@@ -211,6 +212,7 @@ export default function CategorySummary({
     try {
       setError(null);
       setLimitReached(false);
+      setBacklogMessage(null);
       setScanDone(false);
       setClassifyResult(null);
 
@@ -234,6 +236,13 @@ export default function CategorySummary({
 
         if (data.error === 'USAGE_LIMIT_REACHED') {
           setLimitReached(true);
+          setProgress(null);
+          eventSource.close();
+          return;
+        }
+
+        if (data.error === 'BACKLOG_TOO_LARGE') {
+          setBacklogMessage(data.message);
           setProgress(null);
           eventSource.close();
           return;
@@ -488,9 +497,24 @@ export default function CategorySummary({
         />
       )}
 
+      {/* Backlog cap — applies to every tier, shown before the quota states */}
+      {!progress && backlogMessage && (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#fffbeb',
+          border: '1px solid #fde68a',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#92400e',
+          marginBottom: '12px',
+        }}>
+          {backlogMessage}
+        </div>
+      )}
+
       {/* Scan button, or quota-exhausted state — tester tier gets a
           self-serve top-up, no approval needed; everyone else is unchanged */}
-      {!progress && outOfQuota && tier === 'tester' ? (
+      {!progress && backlogMessage ? null : !progress && outOfQuota && tier === 'tester' ? (
         <div style={{
           padding: '12px 16px',
           backgroundColor: '#f0fdfa',

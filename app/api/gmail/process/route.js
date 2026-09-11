@@ -6,7 +6,7 @@ import Email from "../../../../models/Email";
 import { getMessageIds, getEmailMetadata } from "../../../../lib/gmail";
 import { classifyEmail } from "../../../../lib/classifier/index";
 import { logError, logInfo, logWarning } from '../../../../lib/logger';
-import { getEffectiveLimit, ensureFreshUsage } from '../../../../lib/tierLimits';
+import { getEffectiveLimit, ensureFreshUsage, MAX_UNACTIONED_BACKLOG } from '../../../../lib/tierLimits';
 
 export async function GET(request) {
   console.log("=== SSE route hit ===");
@@ -71,6 +71,25 @@ export async function GET(request) {
               : `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
           limit: cleanupLimit,
           used: alreadyUsed,
+        });
+        controller.close();
+        return;
+      }
+
+      // Guard against endless rescanning without ever reviewing anything —
+      // applies to every tier, not just testers. See MAX_UNACTIONED_BACKLOG
+      // in lib/tierLimits.js for why this exists alongside net-new metering.
+      const backlogCount = await Email.countDocuments({
+        userId: user._id,
+        isProcessed: true,
+        actionTaken: null,
+      });
+
+      if (backlogCount >= MAX_UNACTIONED_BACKLOG) {
+        send({
+          error: "BACKLOG_TOO_LARGE",
+          message: `You have ${backlogCount.toLocaleString()} emails waiting for review. Archive, trash, or label some before scanning more.`,
+          backlogCount,
         });
         controller.close();
         return;
@@ -165,11 +184,6 @@ export async function GET(request) {
         failedCount,
       });
 
-      // Meter usage against the monthly cleanup limit — counts emails
-      // actually fetched this request, not just the requested batch size
-      user.usage.cleanupCount = alreadyUsed + emails.length;
-      await user.save();
-
       // ── Stage 3: Classify emails ────────────────────────────
       // Fetch unprocessed emails from DB
       const unprocessed = await Email.find({
@@ -229,6 +243,16 @@ export async function GET(request) {
             percent: classifyPercent, // now matches the X/Y numbers shown
           })
       }
+
+      // Meter usage against the monthly cleanup limit — counts emails
+      // actually newly classified this request (net-new), not raw emails
+      // fetched. Rescanning an inbox you'd already scanned before used to
+      // charge the full fetch count even when most of it was duplicates
+      // you already had — meaning the quota-consumed number and the
+      // "emails processed" number shown on the dashboard could disagree.
+      // Metering by `classified` makes them the same number everywhere.
+      user.usage.cleanupCount = alreadyUsed + classified;
+      await user.save();
 
       // ── Done ────────────────────────────────────────────────
       send({
