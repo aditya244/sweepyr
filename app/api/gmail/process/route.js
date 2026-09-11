@@ -97,7 +97,15 @@ export async function GET(request) {
 
       const batchSize = Math.min(requestedSize, remaining);
 
-      // ── Stage 1: Fetch message IDs ──────────────────────────
+      // ── Stage 1: Fetch message IDs — new-to-us only ─────────
+      // Previously fetched whatever sat in the Gmail inbox regardless of
+      // whether we'd already scanned it before, re-downloading metadata for
+      // the same familiar messages on every scan (they stay in the inbox
+      // until archived/trashed — scanning alone never removes them). Now
+      // pages through the inbox, checking each page against what we already
+      // have on file, and only keeps message IDs we've genuinely never seen.
+      // "batchSize" now means "up to N messages new to us," not "the top N
+      // in the inbox regardless of familiarity."
       send({
         stage: "scanning",
         message: "Fetching email list...",
@@ -105,12 +113,41 @@ export async function GET(request) {
         total: batchSize,
       });
 
-      const { messageIds } = await getMessageIds(user.refreshToken, batchSize);
+      const MAX_EXAMINED = 5000; // safety cap so a huge, mostly-known inbox
+      // can't make one scan page through it indefinitely
+      let messageIds = [];
+      let pageToken = null;
+      let examinedCount = 0;
+
+      do {
+        const page = await getMessageIds(user.refreshToken, 500, pageToken);
+        if (page.messageIds.length === 0) break;
+
+        examinedCount += page.messageIds.length;
+
+        const knownDocs = await Email.find({
+          userId: user._id,
+          messageId: { $in: page.messageIds.map((m) => m.id) },
+        }).select("messageId").lean();
+        const knownIds = new Set(knownDocs.map((e) => e.messageId));
+
+        messageIds.push(...page.messageIds.filter((m) => !knownIds.has(m.id)));
+        pageToken = page.nextPageToken;
+      } while (
+        messageIds.length < batchSize &&
+        pageToken &&
+        examinedCount < MAX_EXAMINED
+      );
+
+      messageIds = messageIds.slice(0, batchSize);
       const total = messageIds.length;
 
       send({
         stage: "scanning",
-        message: `Found ${total} emails. Fetching metadata...`,
+        message:
+          total === 0
+            ? "No new emails found — everything in your inbox has already been scanned."
+            : `Found ${total} new email${total === 1 ? "" : "s"}. Fetching metadata...`,
         progress: 0,
         total,
       });
