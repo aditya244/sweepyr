@@ -47,6 +47,14 @@
   `usage.bonusCredits` counter, only ever read by a new
   `getEffectiveLimit(user)` helper for tester tier — `getCleanupLimit()`
   (used by every other tier) is untouched.
+- **Deliberate design note:** "1 credit" is not a hard 200-email
+  contract. Metering charges whatever a scan actually fetches
+  (`emails.length`, e.g. 179 on a smaller inbox), not a flat 200 per
+  click — "N scan credits remaining" (`floor(remaining / 200)`) is a
+  display approximation, not an exact count. Confirmed as the intended
+  behavior over a flat-200-per-scan alternative: fair metering (never
+  charged for emails that don't exist) was preferred over a perfectly
+  predictable credit count.
 
 ### Tester tier + whitelist
 - **Shipped:** 2026-09-11
