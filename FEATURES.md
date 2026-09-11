@@ -22,6 +22,32 @@
 
 ## Shipped
 
+### Self-serve tester credit top-ups
+- **Shipped:** 2026-09-11
+- **What it is:** Testers now see "N scan credits remaining" (not an
+  email count) in the mailbox card, and once exhausted, a "+ Get 1
+  more credit (200 emails)" button that grants it instantly — no
+  approval, no request/notify flow. Every other tier is completely
+  unaffected — this only ever reads/writes for `tier === 'tester'`.
+- **Why:** The original one-time 1000-email allocation had no way to
+  get more without you manually editing MongoDB. For a handful of
+  trusted testing-phase friends, self-serve is simpler than building
+  any kind of request-and-approve flow.
+- **Impacted pages (test these):** Dashboard mailbox card, signed in as
+  a tester — check the credit count display, exhaust it (or use the
+  button repeatedly), confirm the button grants a credit and the scan
+  button re-enables immediately via `onUsageRefresh`. Also confirm a
+  **non-tester** account sees no change at all — the "X of Y emails
+  used this month" text and the `/pricing`-linking upgrade box should
+  render exactly as before.
+- **Before:** Testers who ran out of credits were stuck, with a
+  misleading "this month" message and a dead link to a non-functional
+  pricing page.
+- **After:** One click, instantly back to cleaning. Implemented as a
+  `usage.bonusCredits` counter, only ever read by a new
+  `getEffectiveLimit(user)` helper for tester tier — `getCleanupLimit()`
+  (used by every other tier) is untouched.
+
 ### Tester tier + whitelist
 - **Shipped:** 2026-09-11
 - **What it is:** A new `tester` tier for whitelisting friends during the

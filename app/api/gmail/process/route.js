@@ -6,7 +6,7 @@ import Email from "../../../../models/Email";
 import { getMessageIds, getEmailMetadata } from "../../../../lib/gmail";
 import { classifyEmail } from "../../../../lib/classifier/index";
 import { logError, logInfo } from '../../../../lib/logger';
-import { getCleanupLimit, ensureFreshUsage } from '../../../../lib/tierLimits';
+import { getEffectiveLimit, ensureFreshUsage } from '../../../../lib/tierLimits';
 
 export async function GET(request) {
   console.log("=== SSE route hit ===");
@@ -58,14 +58,17 @@ export async function GET(request) {
       await ensureFreshUsage(user);
 
       const userTier = user.tier || "free";
-      const cleanupLimit = getCleanupLimit(userTier);
+      const cleanupLimit = getEffectiveLimit(user);
       const alreadyUsed = user.usage.cleanupCount || 0;
       const remaining = Math.max(0, cleanupLimit - alreadyUsed);
 
       if (remaining <= 0) {
         send({
           error: "USAGE_LIMIT_REACHED",
-          message: `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
+          message:
+            userTier === "tester"
+              ? "You've used all your testing credits."
+              : `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
           limit: cleanupLimit,
           used: alreadyUsed,
         });

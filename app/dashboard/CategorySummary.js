@@ -123,7 +123,25 @@ export default function CategorySummary({
   onUsageRefresh,
 }) {
   const [limitReached, setLimitReached] = useState(false);
+  const [grantingCredit, setGrantingCredit] = useState(false);
   const outOfQuota = limitReached || (usage && usage.remaining <= 0);
+  const testerCreditSize = TIER_BATCH_OPTIONS.tester[0];
+  const testerCreditsRemaining = usage ? Math.floor(usage.remaining / testerCreditSize) : 0;
+
+  async function getMoreTesterCredit() {
+    try {
+      setGrantingCredit(true);
+      const res = await fetch("/api/user/tester-credit", { method: "POST" });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setLimitReached(false);
+      onUsageRefresh?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGrantingCredit(false);
+    }
+  }
 
   async function fetchEmailCount() {
     try {
@@ -341,7 +359,12 @@ export default function CategorySummary({
       }}>
         {TIER_LABELS[tier]} Plan
       </span>
-      {usage && (
+      {usage && tier === 'tester' && (
+        <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+          {testerCreditsRemaining} scan credit{testerCreditsRemaining === 1 ? '' : 's'} remaining
+        </span>
+      )}
+      {usage && tier !== 'tester' && (
         <span style={{ fontSize: '11px', color: '#9ca3af' }}>
           {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
         </span>
@@ -429,8 +452,42 @@ export default function CategorySummary({
         />
       )}
 
-      {/* Scan button, or upgrade prompt if this month's quota is used up */}
-      {!progress && outOfQuota ? (
+      {/* Scan button, or quota-exhausted state — tester tier gets a
+          self-serve top-up, no approval needed; everyone else is unchanged */}
+      {!progress && outOfQuota && tier === 'tester' ? (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#f0fdfa',
+          border: '1px solid #99f6e4',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#0f766e',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+        }}>
+          <span>You've used all your testing credits.</span>
+          <button
+            onClick={getMoreTesterCredit}
+            disabled={grantingCredit}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: grantingCredit ? '#9ca3af' : '#0d9488',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: grantingCredit ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {grantingCredit ? 'Adding credit…' : `+ Get 1 more credit (${testerCreditSize} emails)`}
+          </button>
+        </div>
+      ) : !progress && outOfQuota ? (
         <div style={{
           padding: '12px 16px',
           backgroundColor: '#fffbeb',
