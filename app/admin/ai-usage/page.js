@@ -2,7 +2,7 @@ import { getServerSession } from 'next-auth'
 import { redirect } from 'next/navigation'
 import { authOptions } from '../../../lib/authOptions'
 import connectDB from '../../../lib/mongoose'
-import { getAiUsageReport } from '../../../lib/aiUsageReport'
+import { getAiUsageReport, resolveRangeStart } from '../../../lib/aiUsageReport'
 
 // Same comma-separated env var convention as TESTER_EMAILS in authOptions.js
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
@@ -10,7 +10,14 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean)
 
-export default async function AiUsagePage() {
+const RANGES = [
+  { key: 'daily', label: 'Daily' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+  { key: 'all', label: 'All time' },
+]
+
+export default async function AiUsagePage({ searchParams }) {
   const session = await getServerSession(authOptions)
   const email = (session?.user?.email || '').toLowerCase()
 
@@ -18,8 +25,12 @@ export default async function AiUsagePage() {
     redirect('/')
   }
 
+  // searchParams is a Promise in Next.js 15+ page components
+  const params = await searchParams
+  const range = RANGES.some((r) => r.key === params?.range) ? params.range : 'all'
+
   await connectDB()
-  const { totalClassified, bySource, aiDomains } = await getAiUsageReport()
+  const { totalClassified, bySource, aiDomains } = await getAiUsageReport(resolveRangeStart(range))
 
   const pct = (n) => (totalClassified > 0 ? Math.round((n / totalClassified) * 1000) / 10 : 0)
 
@@ -37,10 +48,74 @@ export default async function AiUsagePage() {
       <h1 style={{ fontSize: '22px', fontWeight: '700', color: '#111827', marginBottom: '4px' }}>
         AI Usage Report
       </h1>
-      <p style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '32px' }}>
-        Across all users, all-time. Any domain below is one <code>KNOWN_DOMAINS</code> doesn't
-        handle yet — a large % here is a candidate for a new rule.
+      <p style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '24px' }}>
+        Any domain below is one <code>KNOWN_DOMAINS</code> doesn't handle yet — a large % here is
+        a candidate for a new rule.
       </p>
+
+      {/* Range tabs + download */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: '12px',
+        marginBottom: '32px',
+      }}>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {RANGES.map((r) => (
+            <a
+              key={r.key}
+              href={`/admin/ai-usage?range=${r.key}`}
+              style={{
+                padding: '6px 14px',
+                fontSize: '13px',
+                fontWeight: '500',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                color: range === r.key ? '#0d9488' : '#6b7280',
+                backgroundColor: range === r.key ? '#f0fdfa' : '#f9fafb',
+                border: range === r.key ? '1px solid #5eead4' : '1px solid #e5e7eb',
+              }}
+            >
+              {r.label}
+            </a>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <a
+            href={`/api/admin/ai-usage-export?range=${range}&format=csv`}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: '600',
+              textDecoration: 'none',
+              color: '#374151',
+              backgroundColor: '#f9fafb',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+            }}
+          >
+            ⬇ CSV
+          </a>
+          <a
+            href={`/api/admin/ai-usage-export?range=${range}&format=txt`}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: '600',
+              textDecoration: 'none',
+              color: '#374151',
+              backgroundColor: '#f9fafb',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+            }}
+          >
+            ⬇ TXT
+          </a>
+        </div>
+      </div>
 
       {/* Classification source split */}
       <div
@@ -83,7 +158,7 @@ export default async function AiUsagePage() {
       </h2>
 
       {aiDomains.length === 0 ? (
-        <p style={{ fontSize: '13px', color: '#9ca3af' }}>No AI-classified emails yet.</p>
+        <p style={{ fontSize: '13px', color: '#9ca3af' }}>No AI-classified emails in this range.</p>
       ) : (
         <div style={{ border: '1px solid #e5e7eb', borderRadius: '10px', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
