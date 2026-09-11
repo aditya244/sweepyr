@@ -427,6 +427,27 @@ export default function CategorySummary({
       </span>
     </div>
 
+    <span style={{
+      fontSize: '11px',
+      color: '#0f766e',
+      backgroundColor: '#f0fdfa',
+      padding: '2px 8px',
+      borderRadius: '999px',
+      fontWeight: '500',
+    }}>
+      {TIER_LABELS[tier]} Plan
+    </span>
+    {usage && tier === 'tester' && (
+      <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+        {testerCreditsRemaining} scan credit{testerCreditsRemaining === 1 ? '' : 's'} remaining
+      </span>
+    )}
+    {usage && tier !== 'tester' && (
+      <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+        {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
+      </span>
+    )}
+
     <span style={{ fontSize: '12px', color: '#9ca3af' }}>
       Rescan to check for new emails
       {tier === 'free' && (
