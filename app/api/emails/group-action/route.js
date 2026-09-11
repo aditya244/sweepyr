@@ -14,7 +14,7 @@ export async function POST(request) {
 
   const { action, messageIds, category } = await request.json()
 
-  if (!['archive', 'trash', 'label'].includes(action)) {
+  if (!['archive', 'trash', 'label', 'no_action'].includes(action)) {
     return Response.json({ error: 'Invalid action' }, { status: 400 })
   }
 
@@ -39,6 +39,8 @@ export async function POST(request) {
     } else if (action === 'label') {
       const labelId = await getOrCreateLabel(user.refreshToken, `Sweepyr/${category}`)
       result = await applyLabel(user.refreshToken, messageIds, labelId)
+    } else if (action === 'no_action') {
+      result = messageIds.length
     }
 
     // Save action history
@@ -50,10 +52,11 @@ export async function POST(request) {
       messageIds,
     })
 
-    // Update emails in MongoDB
+    // Update emails in MongoDB — isProcessed stays true for 'no_action'
+    // specifically, see the comment in app/api/emails/actions/route.js
     await Email.updateMany(
       { userId: user._id, messageId: { $in: messageIds } },
-      { $set: { actionTaken: action, category: null, isProcessed: false } }
+      { $set: { actionTaken: action, category: null, isProcessed: action === 'no_action' ? true : false } }
     )
 
     return Response.json({ success: true, affected: result })
