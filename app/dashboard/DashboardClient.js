@@ -160,6 +160,7 @@ export default function DashboardClient({ userName }) {
           tier={tier}
           usage={usage}
           onUsageRefresh={checkUserStatus}
+          onStatsRefresh={refreshStats}
         />
       </div>
     )}

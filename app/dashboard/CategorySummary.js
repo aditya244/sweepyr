@@ -121,6 +121,7 @@ export default function CategorySummary({
   tier = 'free',
   usage,
   onUsageRefresh,
+  onStatsRefresh,
 }) {
   const [limitReached, setLimitReached] = useState(false);
   const [grantingCredit, setGrantingCredit] = useState(false);
@@ -266,6 +267,7 @@ export default function CategorySummary({
           setProgress(null);
           eventSource.close();
           onUsageRefresh?.();
+          onStatsRefresh?.();
           return;
         }
 
