@@ -70,6 +70,15 @@ const EmailSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    source: {
+      type: String,
+      enum: ["scanned", "monitored"],
+      default: "scanned",
+    },
+    monitoredAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

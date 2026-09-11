@@ -15,15 +15,32 @@ export default async function DashboardPage() {
 
 return (
   <div className="min-h-screen bg-gray-50 p-8">
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Mailclean</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+  <img
+    src="/app-icon.svg"
+    style={{
+      width: '64px',
+      height: '64px',
+      flexShrink: 0,
+      background: 'none',
+      backgroundColor: 'transparent',
+      border: 'none',
+      boxShadow: 'none',
+    }}
+    alt="Sweepyr"
+  />
+  <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#111827', margin: 0 }}>
+    Sweepyr
+  </h1>
+</div>
         <div className="flex items-center gap-4">
           <Link
             href="/pricing"
             style={{
               padding: '8px 16px',
-              backgroundColor: '#4f46e5',
+              backgroundColor: '#0d9488',
               color: '#fff',
               borderRadius: '8px',
               fontSize: '13px',
@@ -48,7 +65,7 @@ return (
         </div>
       </div>
        {/* <StatsBar  refreshKey={statsRefreshKey}/> */}
-      <DashboardClient />
+      <DashboardClient userName={session.user.name}/>
     </div>
   </div>
 )

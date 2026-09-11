@@ -31,11 +31,18 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
-
+.env.local
+.env.staging
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+Pending-tasks.md
+# Sentry Config File
+.env.sentry-build-plugin
+
+
+DETAILED_CODEBASE_ANALYSIS.md

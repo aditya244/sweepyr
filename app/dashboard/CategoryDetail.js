@@ -23,9 +23,9 @@ const ALL_CATEGORIES = [
 const ACTION_BUTTONS = {
   label: {
     label: "🏷️ Label",
-    color: "#4338ca",
+    color: "#0f766e",
     backgroundColor: "#e0e7ff",
-    border: "1px solid #a5b4fc",
+    border: "1px solid #5eead4",
   },
   archive: {
     label: "📦 Archive",
@@ -53,8 +53,8 @@ const HIGH_RISK_CATEGORIES = [
 const SOURCE_LABELS = {
   rules: { label: "Auto-sorted", color: "#1d4ed8", bg: "#dbeafe" },
   domain: { label: "Auto-sorted", color: "#1d4ed8", bg: "#dbeafe" },
-  ai: { label: "AI-sorted", color: "#6d28d9", bg: "#ede9fe" },
-  user: { label: "You moved", color: "#166534", bg: "#dcfce7" },
+  ai: { label: "AI-sorted", color: "#0f766e", bg: "#f0fdfa" },
+  user: { label: "You sorted", color: "#166534", bg: "#dcfce7" },
 };
 
 // Parses sender name and email from "Name <email@domain.com>"
@@ -84,13 +84,56 @@ function formatDate(dateStr) {
   }
 }
 
+// Days between now and an email's date header. Returns null if unparseable.
+function getEmailAgeInDays(dateStr) {
+  if (!dateStr) return null;
+  const parsed = new Date(dateStr);
+  if (isNaN(parsed.getTime())) return null;
+  return (Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+// 🟢 under 1 month, 🟡 1–12 months, 🔴 over 1 year — lets users eyeball
+// "is this safe to clean" without mentally computing dates themselves.
+function getAgeBadge(dateStr) {
+  const days = getEmailAgeInDays(dateStr);
+  if (days === null) return null;
+  if (days < 30) return { emoji: "🟢", label: "Recent" };
+  if (days < 365) return { emoji: "🟡", label: "1–12 months old" };
+  return { emoji: "🔴", label: "Over a year old" };
+}
+
+const DATE_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "recent", label: "Last 3 months" },
+  { key: "mid", label: "3–12 months" },
+  { key: "old", label: "Older than 1 year" },
+];
+
 function getUnsubscribeUrl(headers) {
   const header = headers?.["list-unsubscribe"];
   if (!header) return null;
   // Header format: "<https://unsubscribe.url>, <mailto:...>"
   // Extract the https URL
   const match = header.match(/<(https?:\/\/[^>]+)>/);
-  return match ? match[1] : null;
+  if (!match) {
+    return null;
+  }
+  const url = match[1];
+  // Skip URLs that look like API endpoints rather than user-facing pages.
+  // These return raw JSON when opened in a browser, which is confusing.
+  const apiPatterns = [
+    /\/api\//i,
+    /\.json(\?|$)/i,
+    /\/v\d+\//i,
+    /\/oneclick/i,
+    /\/unsubscribe\/api/i,
+  ];
+
+  if (apiPatterns.some((pattern) => pattern.test(url))) {
+    return null;
+  }
+
+  return url;
 }
 
 // for grouping the emails
@@ -142,6 +185,7 @@ export default function CategoryDetail({
   onCategoryOverride,
   onActionComplete,
   onStatsRefresh,
+  onCountRefresh,
 }) {
   const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -150,15 +194,39 @@ export default function CategoryDetail({
   const [total, setTotal] = useState(0);
   const [overriding, setOverriding] = useState(null); // messageId being overridden
   const [error, setError] = useState(null);
-  const [modal, setModal] = useState({ isOpen: false, action: null });
+  // group is null for a whole-category action, or { domain, emails } when
+  // the modal was opened from a sender-group's action buttons instead
+  const [modal, setModal] = useState({ isOpen: false, action: null, group: null });
   const [actioning, setActioning] = useState(false);
   const [actionResult, setActionResult] = useState(null);
   const [groupActioning, setGroupActioning] = useState(null);
-  const [isGrouped, setIsGrouped] = useState(false)
-const [expandedGroups, setExpandedGroups] = useState({})
-//const [groupActioning, setGroupActioning] = useState(null)
-
+  const [isGrouped, setIsGrouped] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({});
+  //const [groupActioning, setGroupActioning] = useState(null)
+  const [openGroupMenu, setOpenGroupMenu] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("all"); // 'all' | 'recent' | 'mid' | 'old'
   const isHighRisk = HIGH_RISK_CATEGORIES.includes(category);
+
+  // Client-side only — filters whatever page(s) are currently loaded, same
+  // limitation as pagination itself. No API call needed for either filter.
+  const visibleEmails = emails.filter((email) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      const matchesSender = (email.from || "").toLowerCase().includes(q);
+      const matchesSubject = (email.subject || "").toLowerCase().includes(q);
+      if (!matchesSender && !matchesSubject) return false;
+    }
+    if (dateFilter !== "all") {
+      const days = getEmailAgeInDays(email.date);
+      if (days === null) return false;
+      if (dateFilter === "recent" && !(days < 90)) return false;
+      if (dateFilter === "mid" && !(days >= 90 && days < 365)) return false;
+      if (dateFilter === "old" && !(days >= 365)) return false;
+    }
+    return true;
+  });
+  const isFiltering = searchQuery.trim() !== "" || dateFilter !== "all";
 
   useEffect(() => {
     fetchEmails(1);
@@ -188,6 +256,68 @@ const [expandedGroups, setExpandedGroups] = useState({})
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function executeGroupLabel(domain, groupEmails) {
+    try {
+      setModal({ isOpen: false, action: null, group: null });
+      setGroupActioning(domain);
+      setOpenGroupMenu(null);
+
+      const messageIds = groupEmails.map((e) => e.messageId);
+
+      const res = await fetch("/api/emails/group-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "label", messageIds, category }),
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      setEmails((prev) =>
+        prev.filter((e) => !messageIds.includes(e.messageId)),
+      );
+      setTotal((prev) => prev - messageIds.length);
+      onActionComplete(category);
+      onStatsRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGroupActioning(null);
+    }
+  }
+
+  async function executeGroupMove(domain, groupEmails, newCategory) {
+    try {
+      setGroupActioning(domain);
+      setOpenGroupMenu(null);
+
+      const messageIds = groupEmails.map((e) => e.messageId);
+
+      // Move each email — no bulk move endpoint, so we fire them in parallel
+      await Promise.all(
+        messageIds.map((messageId) =>
+          fetch(`/api/emails/${messageId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: newCategory }),
+          }),
+        ),
+      );
+
+      setEmails((prev) =>
+        prev.filter((e) => !messageIds.includes(e.messageId)),
+      );
+      setTotal((prev) => prev - messageIds.length);
+
+      // Update summary counts — one call per email moved
+      messageIds.forEach(() => onCategoryOverride(category, newCategory));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGroupActioning(null);
     }
   }
 
@@ -245,6 +375,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
 
   async function executeGroupAction(action, domain, groupEmails) {
     try {
+      setModal({ isOpen: false, action: null, group: null });
       setGroupActioning(domain);
 
       const messageIds = groupEmails.map((e) => e.messageId);
@@ -292,9 +423,14 @@ const [expandedGroups, setExpandedGroups] = useState({})
                   {category}
                 </h2>
                 <p className="text-sm text-gray-400">
-                  {emails.length > 0
-                    ? `Showing ${emails.length} of ${total} emails`
-                    : `${total} emails`}
+                  {isFiltering
+                    ? `${visibleEmails.length} match your filter (${emails.length} loaded, ${total} total)`
+                    : emails.length > 0
+                      ? `Showing ${emails.length} of ${total} emails`
+                      : `${total} emails`}
+                </p>
+                <p className="text-xs text-gray-400 italic mt-1">
+                  Reclassifying only changes how Sweepyr sorts an email — it doesn't move it in Gmail.
                 </p>
               </div>
             </div>
@@ -311,10 +447,10 @@ const [expandedGroups, setExpandedGroups] = useState({})
                     padding: "6px 12px",
                     fontSize: "12px",
                     fontWeight: "500",
-                    color: isGrouped ? "#4f46e5" : "#6b7280",
-                    backgroundColor: isGrouped ? "#eef2ff" : "#f9fafb",
+                    color: isGrouped ? "#0d9488" : "#6b7280",
+                    backgroundColor: isGrouped ? "#f0fdfa" : "#f9fafb",
                     border: isGrouped
-                      ? "1px solid #a5b4fc"
+                      ? "1px solid #5eead4"
                       : "1px solid #e5e7eb",
                     borderRadius: "8px",
                     cursor: "pointer",
@@ -334,10 +470,16 @@ const [expandedGroups, setExpandedGroups] = useState({})
                   {["label", "archive", "trash"].map((action) => {
                     const btn = ACTION_BUTTONS[action];
                     const isTrashHighRisk = action === "trash" && isHighRisk;
+                    const tooltip = {
+                      label: `Adds a Sweepyr/${category} label in Gmail. Emails stay in your inbox.`,
+                      archive: "Removes from inbox, keeps in All Mail. Findable anytime via search.",
+                      trash: "Moves to Gmail Trash. Recoverable for 30 days.",
+                    }[action];
                     return (
                       <button
                         key={action}
                         onClick={() => setModal({ isOpen: true, action })}
+                        title={tooltip}
                         style={{
                           padding: "6px 12px",
                           fontSize: "12px",
@@ -369,6 +511,59 @@ const [expandedGroups, setExpandedGroups] = useState({})
               )}
             </div>
           </div>
+
+          {/* Search + date filter */}
+          {emails.length > 0 && !actionResult && (
+            <div
+              style={{
+                marginTop: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by sender or subject..."
+                style={{
+                  flex: "1 1 220px",
+                  padding: "6px 10px",
+                  fontSize: "12px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "8px",
+                  color: "#374151",
+                }}
+              />
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                {DATE_FILTERS.map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setDateFilter(f.key)}
+                    style={{
+                      padding: "6px 10px",
+                      fontSize: "11px",
+                      fontWeight: "500",
+                      color: dateFilter === f.key ? "#0d9488" : "#6b7280",
+                      backgroundColor:
+                        dateFilter === f.key ? "#f0fdfa" : "#f9fafb",
+                      border:
+                        dateFilter === f.key
+                          ? "1px solid #5eead4"
+                          : "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* High risk warning */}
           {isHighRisk && (
@@ -417,10 +612,16 @@ const [expandedGroups, setExpandedGroups] = useState({})
           <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
             <p className="text-gray-400 text-sm">No emails in this category.</p>
           </div>
+        ) : visibleEmails.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-gray-400 text-sm">
+              No emails match your search or filter.
+            </p>
+          </div>
         ) : isGrouped ? (
           // ─── Grouped View ─────────────────────────────────────────
           <div className="space-y-2">
-            {groupEmailsByDomain(emails).map((group) => {
+            {groupEmailsByDomain(visibleEmails).map((group) => {
               const isExpanded = expandedGroups[group.domain];
               const isActioning = groupActioning === group.domain;
 
@@ -428,23 +629,24 @@ const [expandedGroups, setExpandedGroups] = useState({})
                 <div
                   key={group.domain}
                   style={{
-                    backgroundColor: "#ffffff",
-                    borderRadius: "12px",
-                    border: "1px solid #e5e7eb",
-                    overflow: "hidden",
+                    backgroundColor: '#ffffff',
+                    borderRadius: '12px',
+                    border: '1px solid #e5e7eb',
+                    position: 'relative',
+                    zIndex: openGroupMenu === group.domain ? 30 : 1,
                   }}
                 >
                   {/* Group header */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "12px 16px",
-                      backgroundColor: "#f9fafb",
-                      borderBottom: isExpanded ? "1px solid #e5e7eb" : "none",
-                    }}
-                  >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    backgroundColor: '#f9fafb',
+                    borderBottom: isExpanded ? '1px solid #e5e7eb' : 'none',
+                    borderRadius: isExpanded ? '12px 12px 0 0' : '12px',
+                    position: 'relative',
+                  }}>
                     {/* Left — domain info */}
                     <button
                       onClick={() =>
@@ -495,16 +697,22 @@ const [expandedGroups, setExpandedGroups] = useState({})
                     {/* Right — group action buttons */}
                     {!isActioning ? (
                       <div
-                        style={{ display: "flex", gap: "6px", flexShrink: 0 }}
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          flexShrink: 0,
+                          position: "relative",
+                        }}
                       >
                         <button
                           onClick={() =>
-                            executeGroupAction(
-                              "archive",
-                              group.domain,
-                              group.emails,
-                            )
+                            setModal({
+                              isOpen: true,
+                              action: "archive",
+                              group: { domain: group.domain, emails: group.emails },
+                            })
                           }
+                          title={`Archives all ${group.emails.length} emails from ${group.domain}. Removes from inbox, keeps in All Mail — findable anytime via search.`}
                           style={{
                             padding: "4px 10px",
                             fontSize: "11px",
@@ -519,21 +727,25 @@ const [expandedGroups, setExpandedGroups] = useState({})
                         >
                           📦 Archive
                         </button>
+
                         <button
                           onClick={() =>
-                            executeGroupAction(
-                              "trash",
-                              group.domain,
-                              group.emails,
-                            )
+                            setModal({
+                              isOpen: true,
+                              action: "trash",
+                              group: { domain: group.domain, emails: group.emails },
+                            })
                           }
+                          title={`Moves all ${group.emails.length} emails from ${group.domain} to Gmail Trash. Recoverable for 30 days.`}
                           style={{
                             padding: "4px 10px",
                             fontSize: "11px",
                             fontWeight: "500",
-                            color: "#991b1b",
-                            backgroundColor: "#fee2e2",
-                            border: "1px solid #fca5a5",
+                            color: isHighRisk ? "#ffffff" : "#991b1b",
+                            backgroundColor: isHighRisk ? "#dc2626" : "#fee2e2",
+                            border: isHighRisk
+                              ? "1px solid #b91c1c"
+                              : "1px solid #fca5a5",
                             borderRadius: "6px",
                             cursor: "pointer",
                             whiteSpace: "nowrap",
@@ -541,6 +753,140 @@ const [expandedGroups, setExpandedGroups] = useState({})
                         >
                           🗑️ Trash
                         </button>
+
+                        <button
+                          onClick={() =>
+                            setOpenGroupMenu(
+                              openGroupMenu === group.domain
+                                ? null
+                                : group.domain,
+                            )
+                          }
+                          style={{
+                            padding: "4px 10px",
+                            fontSize: "11px",
+                            fontWeight: "600",
+                            color: "#6b7280",
+                            backgroundColor: "#f9fafb",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          •••
+                        </button>
+
+                        {/* Overflow menu */}
+                        {openGroupMenu === group.domain && (
+                          <>
+                            {/* Click-outside catcher */}
+                            <div
+                              onClick={() => setOpenGroupMenu(null)}
+                              style={{
+                                position: "fixed",
+                                inset: 0,
+                                zIndex: 100,
+                              }}
+                            />
+
+                            <div style={{
+                              position: 'absolute',
+                              top: '100%',
+                              right: 0,
+                              marginTop: '4px',
+                              backgroundColor: '#ffffff',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '8px',
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                              zIndex: 101,
+                              minWidth: '180px',
+                              padding: '4px',
+                            }}>
+                              <button
+                                onClick={() => {
+                                  setOpenGroupMenu(null);
+                                  setModal({
+                                    isOpen: true,
+                                    action: "label",
+                                    group: { domain: group.domain, emails: group.emails },
+                                  });
+                                }}
+                                title={`Adds a Sweepyr/${category} label in Gmail to all ${group.emails.length} emails from ${group.domain}. Emails stay in your inbox.`}
+                                style={{
+                                  width: "100%",
+                                  textAlign: "left",
+                                  padding: "8px 10px",
+                                  fontSize: "12px",
+                                  backgroundColor: "transparent",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  cursor: "pointer",
+                                  color: "#374151",
+                                }}
+                              >
+                                🏷️ Label all {group.emails.length}
+                              </button>
+
+                              <div
+                                style={{
+                                  height: "1px",
+                                  backgroundColor: "#f3f4f6",
+                                  margin: "4px 0",
+                                }}
+                              />
+
+                              <p
+                                title="Changes how Sweepyr sorts these emails. Nothing changes in Gmail."
+                                style={{
+                                  margin: "0",
+                                  padding: "4px 10px",
+                                  fontSize: "10px",
+                                  color: "#9ca3af",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.05em",
+                                  fontWeight: "600",
+                                }}
+                              >
+                                Reclassify all as
+                              </p>
+
+                              <div
+                                style={{
+                                  maxHeight: "180px",
+                                  overflowY: "auto",
+                                }}
+                              >
+                                {ALL_CATEGORIES.filter(
+                                  (c) => c !== category,
+                                ).map((c) => (
+                                  <button
+                                    key={c}
+                                    onClick={() =>
+                                      executeGroupMove(
+                                        group.domain,
+                                        group.emails,
+                                        c,
+                                      )
+                                    }
+                                    style={{
+                                      width: "100%",
+                                      textAlign: "left",
+                                      padding: "6px 10px",
+                                      fontSize: "12px",
+                                      backgroundColor: "transparent",
+                                      border: "none",
+                                      borderRadius: "6px",
+                                      cursor: "pointer",
+                                      color: "#374151",
+                                    }}
+                                  >
+                                    {c}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <span style={{ fontSize: "12px", color: "#6b7280" }}>
@@ -629,6 +975,11 @@ const [expandedGroups, setExpandedGroups] = useState({})
                                     flexWrap: "wrap",
                                   }}
                                 >
+                                  {getAgeBadge(email.date) && (
+                                    <span title={getAgeBadge(email.date).label} style={{ fontSize: "11px" }}>
+                                      {getAgeBadge(email.date).emoji}
+                                    </span>
+                                  )}
                                   <p
                                     style={{
                                       margin: "0",
@@ -676,7 +1027,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
                                       color: "#9ca3af",
                                     }}
                                   >
-                                    Moving...
+                                    Reclassifying...
                                   </span>
                                 ) : (
                                   <select
@@ -688,6 +1039,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
                                           e.target.value,
                                         );
                                     }}
+                                    title="Changes how Sweepyr sorts this email. Nothing changes in Gmail."
                                     style={{
                                       fontSize: "12px",
                                       border: "1px solid #e5e7eb",
@@ -699,7 +1051,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
                                     }}
                                   >
                                     <option value="" disabled>
-                                      Move to...
+                                      Reclassify...
                                     </option>
                                     {ALL_CATEGORIES.filter(
                                       (c) => c !== category,
@@ -724,7 +1076,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
         ) : (
           // ─── Flat View (existing) ──────────────────────────────────
           <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-            {emails.map((email) => {
+            {visibleEmails.map((email) => {
               const sender = parseSender(email.from);
               const source =
                 SOURCE_LABELS[email.classificationSource] || SOURCE_LABELS.ai;
@@ -774,6 +1126,11 @@ const [expandedGroups, setExpandedGroups] = useState({})
                           flexWrap: "wrap",
                         }}
                       >
+                        {getAgeBadge(email.date) && (
+                          <span title={getAgeBadge(email.date).label} className="text-xs">
+                            {getAgeBadge(email.date).emoji}
+                          </span>
+                        )}
                         <p
                           className="text-xs text-gray-400"
                           style={{ margin: 0 }}
@@ -811,7 +1168,7 @@ const [expandedGroups, setExpandedGroups] = useState({})
                     </div>
                     <div className="flex-shrink-0">
                       {isOverriding ? (
-                        <span className="text-xs text-gray-400">Moving...</span>
+                        <span className="text-xs text-gray-400">Reclassifying...</span>
                       ) : (
                         <select
                           defaultValue=""
@@ -819,10 +1176,11 @@ const [expandedGroups, setExpandedGroups] = useState({})
                             if (e.target.value)
                               overrideCategory(email.messageId, e.target.value);
                           }}
+                          title="Changes how Sweepyr sorts this email. Nothing changes in Gmail."
                           className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white hover:border-gray-300 transition-colors"
                         >
                           <option value="" disabled>
-                            Move to...
+                            Reclassify...
                           </option>
                           {ALL_CATEGORIES.filter((c) => c !== category).map(
                             (c) => (
@@ -863,10 +1221,21 @@ const [expandedGroups, setExpandedGroups] = useState({})
         isOpen={modal.isOpen}
         action={modal.action}
         category={category}
-        count={total}
+        scopeLabel={modal.group ? `${category} — ${modal.group.domain}` : category}
+        count={modal.group ? modal.group.emails.length : total}
         isHighRisk={isHighRisk}
-        onConfirm={() => executeAction(modal.action)}
-        onCancel={() => setModal({ isOpen: false, action: null })}
+        onConfirm={() => {
+          if (modal.group) {
+            if (modal.action === "label") {
+              executeGroupLabel(modal.group.domain, modal.group.emails);
+            } else {
+              executeGroupAction(modal.action, modal.group.domain, modal.group.emails);
+            }
+          } else {
+            executeAction(modal.action);
+          }
+        }}
+        onCancel={() => setModal({ isOpen: false, action: null, group: null })}
       />
     </>
   );

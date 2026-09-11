@@ -124,10 +124,17 @@ export default function PricingPage() {
     <div style={{ minHeight: '100vh', backgroundColor: '#ffffff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
 
       {/* Nav */}
-      <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 40px', borderBottom: '1px solid #f3f4f6' }}>
+      <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: "0 40px",
+          height: '72px', borderBottom: '1px solid #f3f4f6' }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}>
-          <span style={{ fontSize: '20px' }}>📬</span>
-          <span style={{ fontWeight: '700', fontSize: '18px', color: '#111827' }}>Mailclean</span>
+          <img src="/app-icon-512.png" style={{ 
+            width: '64px', 
+            height: '64px', 
+            borderRadius: '10px',
+            objectFit: 'cover',
+            flexShrink: 0,
+          }} alt="Sweepyr" />
+          <span style={{ fontWeight: '700', fontSize: '20px', color: '#111827' }}>Sweepyr</span>
         </a>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <a href="/" style={{ fontSize: '14px', color: '#6b7280', textDecoration: 'none' }}>Home</a>
@@ -169,7 +176,7 @@ export default function PricingPage() {
                 backgroundColor: plan.dark ? '#111827' : '#f9fafb',
                 borderRadius: '16px',
                 padding: '28px 24px',
-                border: plan.highlight ? '2px solid #4f46e5' : plan.dark ? 'none' : '1px solid #e5e7eb',
+                border: plan.highlight ? '2px solid #0d9488' : plan.dark ? 'none' : '1px solid #e5e7eb',
                 position: 'relative',
                 marginTop: plan.badge ? '16px' : '0',
               }}
@@ -181,7 +188,7 @@ export default function PricingPage() {
                   top: '-14px',
                   left: '50%',
                   transform: 'translateX(-50%)',
-                  backgroundColor: plan.dark ? '#4f46e5' : '#6b7280',
+                  backgroundColor: plan.dark ? '#0d9488' : '#6b7280',
                   color: '#fff',
                   fontSize: '11px',
                   fontWeight: '700',
@@ -218,7 +225,7 @@ export default function PricingPage() {
                 style={{
                   width: '100%',
                   padding: '12px',
-                  backgroundColor: plan.dark ? '#4f46e5' : plan.highlight ? '#111827' : '#111827',
+                  backgroundColor: plan.dark ? '#0d9488' : plan.highlight ? '#111827' : '#111827',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '10px',
@@ -246,7 +253,7 @@ export default function PricingPage() {
                     marginBottom: '10px',
                     lineHeight: '1.4',
                   }}>
-                    <span style={{ color: plan.dark ? '#818cf8' : '#4f46e5', fontWeight: '700', flexShrink: 0, marginTop: '1px' }}>✓</span>
+                    <span style={{ color: plan.dark ? '#2dd4bf' : '#0d9488', fontWeight: '700', flexShrink: 0, marginTop: '1px' }}>✓</span>
                     {f}
                   </li>
                 ))}
@@ -328,7 +335,7 @@ export default function PricingPage() {
       <footer style={{ borderTop: '1px solid #f3f4f6', padding: '32px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span>📬</span>
-          <span style={{ fontWeight: '700', color: '#111827' }}>Mailclean</span>
+          <span style={{ fontWeight: '700', color: '#111827' }}>Sweepyr</span>
         </div>
         <p style={{ fontSize: '12px', color: '#9ca3af', margin: '0' }}>
           Built with privacy in mind · Made in India 🇮🇳

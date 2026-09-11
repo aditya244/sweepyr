@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="fe" x1="14" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f978b"></stop><stop offset="1" stop-color="#17b8a9"></stop>
+    </linearGradient>
+    <linearGradient id="fb" x1="30" y1="28" x2="46" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1fc7b5"></stop><stop offset="1" stop-color="#4bd8c6"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#fff"></rect>
+  <g transform="translate(11.5,18)">
+    <rect x="0" y="0" width="25" height="18" rx="4" stroke="url(#fe)" stroke-width="3"></rect>
+    <path d="M2.5 3 L12.5 11 L22.5 3" stroke="url(#fe)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+    <g transform="translate(-3.5,1)">
+    <path d="M13 11 C12.3 15 13.5 19.5 17 23 Q20 24.5 22.5 22.5 Q25.5 24.5 28 22 C29.3 18.5 28.7 14.5 27.5 10.5 Z" fill="url(#fb)"></path>
+    <path d="M17 9.5 L29.5 -4" stroke="#fff" stroke-width="3.6" stroke-linecap="round"></path>
+    <path d="M14.5 8 L23 6 L24 11 L15.5 13 Z" fill="#0c7c72"></path>
+    <path d="M18.5 8.5 L28.5 -2" stroke="#17b8a9" stroke-width="2.2" stroke-linecap="round"></path>
+    </g>
+  </g>
+</svg>

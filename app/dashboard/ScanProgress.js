@@ -23,7 +23,7 @@ export default function ScanProgress({ stage, message, percent, progress, total 
               width: '14px',
               height: '14px',
               border: '2px solid #e5e7eb',
-              borderTopColor: '#4f46e5',
+              borderTopColor: '#0d9488',
               borderRadius: '50%',
               animation: 'spin 0.8s linear infinite',
               flexShrink: 0,
@@ -44,7 +44,7 @@ export default function ScanProgress({ stage, message, percent, progress, total 
       <div style={{ width: '100%', backgroundColor: '#e5e7eb', borderRadius: '999px', height: '6px', marginBottom: '10px' }}>
         <div style={{
           width: `${percent}%`,
-          backgroundColor: percent === 100 ? '#16a34a' : '#4f46e5',
+          backgroundColor: percent === 100 ? '#16a34a' : '#0d9488',
           height: '6px',
           borderRadius: '999px',
           transition: 'width 0.3s ease',

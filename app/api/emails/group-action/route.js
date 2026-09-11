@@ -4,7 +4,7 @@ import connectDB from '../../../../lib/mongoose'
 import User from '../../../../models/User'
 import Email from '../../../../models/Email'
 import ActionHistory from '../../../../models/ActionHistory'
-import { archiveEmails, trashEmails } from '../../../../lib/gmailActions'
+import { archiveEmails, trashEmails, getOrCreateLabel, applyLabel } from '../../../../lib/gmailActions'
 
 export async function POST(request) {
   const session = await getServerSession(authOptions)
@@ -14,7 +14,7 @@ export async function POST(request) {
 
   const { action, messageIds, category } = await request.json()
 
-  if (!['archive', 'trash'].includes(action)) {
+  if (!['archive', 'trash', 'label'].includes(action)) {
     return Response.json({ error: 'Invalid action' }, { status: 400 })
   }
 
@@ -36,6 +36,9 @@ export async function POST(request) {
       result = await archiveEmails(user.refreshToken, messageIds)
     } else if (action === 'trash') {
       result = await trashEmails(user.refreshToken, messageIds)
+    } else if (action === 'label') {
+      const labelId = await getOrCreateLabel(user.refreshToken, `Sweepyr/${category}`)
+      result = await applyLabel(user.refreshToken, messageIds, labelId)
     }
 
     // Save action history
@@ -56,7 +59,15 @@ export async function POST(request) {
     return Response.json({ success: true, affected: result })
 
   } catch (error) {
-    console.error('Group action error:', error)
+    logError(error, {
+      route: '/api/emails/group-action',
+      userId: session?.user?.id,
+      action,
+      domain,
+    })
+    if (error.code === 'GMAIL_AUTH_EXPIRED') {
+      return Response.json({ error: 'GMAIL_AUTH_EXPIRED', action: 'RECONNECT' }, { status: 401 })
+    }
     return Response.json({ error: error.message }, { status: 500 })
   }
 }

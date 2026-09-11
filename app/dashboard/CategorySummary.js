@@ -83,9 +83,6 @@ const RISK_TEXT = {
   green: "#15803d",
 };
 
-// Tier config — swap with session.user.tier when billing is live
-const CURRENT_TIER = 'free'
-
 const TIER_BATCH_OPTIONS = {
   free:      [100],
   pro:       [100, 200, 500],
@@ -114,7 +111,15 @@ export default function CategorySummary({
   setClassifyResult,
   error,
   setError,
+  onAuthError,
+  startScanRef,
+  tier = 'free',
+  usage,
+  onUsageRefresh,
 }) {
+  const [limitReached, setLimitReached] = useState(false);
+  const outOfQuota = limitReached || (usage && usage.remaining <= 0);
+
   async function fetchEmailCount() {
     try {
       setError(null);
@@ -127,8 +132,15 @@ export default function CategorySummary({
     }
   }
 
+  // Register the scan function so parent can call it
+  useEffect(() => {
+    if (startScanRef) {
+      startScanRef.current = startScanAndClassify
+    }
+  }, [startScanRef])
+
   const [progress, setProgress] = useState(null);
-  const batchOptions = TIER_BATCH_OPTIONS[CURRENT_TIER] || [100]
+  const batchOptions = TIER_BATCH_OPTIONS[tier] || [100]
   const [batchSize, setBatchSize] = useState(batchOptions[batchOptions.length - 1])
 
   useEffect(() => {
@@ -165,6 +177,7 @@ export default function CategorySummary({
   async function startScanAndClassify() {
     try {
       setError(null);
+      setLimitReached(false);
       setScanDone(false);
       setClassifyResult(null);
 
@@ -174,12 +187,31 @@ export default function CategorySummary({
       if (countData.error) throw new Error(countData.error);
       setEmailCount(countData.count);
 
+      if (countData.error === 'GMAIL_AUTH_EXPIRED') {
+        onAuthError()
+        return
+      }
+
       // Open SSE connection
       const url = `/api/gmail/process?batchSize=${batchSize}`;
       const eventSource = new EventSource(url);
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
+
+        if (data.error === 'USAGE_LIMIT_REACHED') {
+          setLimitReached(true);
+          setProgress(null);
+          eventSource.close();
+          return;
+        }
+
+        if (data.error === 'GMAIL_AUTH_EXPIRED') {
+          onAuthError()
+          eventSource.close()
+          setProgress(null)
+          return
+        }
 
         if (data.error) {
           setError(data.error);
@@ -197,6 +229,7 @@ export default function CategorySummary({
           setScanDone(true);
           setProgress(null);
           eventSource.close();
+          onUsageRefresh?.();
           return;
         }
 
@@ -222,37 +255,45 @@ export default function CategorySummary({
     }
   }
 
-  async function startScan() {
-    try {
-      setScanning(true);
-      setError(null);
-      setScanDone(false);
-      setClassifyResult(null);
-      const res = await fetch("/api/gmail/scan", { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setScanDone(true);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setScanning(false);
-    }
-  }
-
-  async function startClassification() {
-    try {
-      setClassifying(true);
-      setError(null);
-      const res = await fetch("/api/gmail/classify", { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setClassifyResult(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setClassifying(false);
-    }
-  }
+  // UNUSED — commented out, not deleted.
+  // startScan() and startClassification() are dead code: neither is wired to
+  // any onClick in this file. The dashboard's "Scan & Clean" button calls
+  // startScanAndClassify() instead, which hits the combined SSE route
+  // /api/gmail/process (scanning + classification with live progress).
+  // These called the now-superseded /api/gmail/scan and /api/gmail/classify
+  // routes (also commented out, see those files).
+  //
+  // async function startScan() {
+  //   try {
+  //     setScanning(true);
+  //     setError(null);
+  //     setScanDone(false);
+  //     setClassifyResult(null);
+  //     const res = await fetch("/api/gmail/scan", { method: "POST" });
+  //     const data = await res.json();
+  //     if (data.error) throw new Error(data.error);
+  //     setScanDone(true);
+  //   } catch (err) {
+  //     setError(err.message);
+  //   } finally {
+  //     setScanning(false);
+  //   }
+  // }
+  //
+  // async function startClassification() {
+  //   try {
+  //     setClassifying(true);
+  //     setError(null);
+  //     const res = await fetch("/api/gmail/classify", { method: "POST" });
+  //     const data = await res.json();
+  //     if (data.error) throw new Error(data.error);
+  //     setClassifyResult(data);
+  //   } catch (err) {
+  //     setError(err.message);
+  //   } finally {
+  //     setClassifying(false);
+  //   }
+  // }
 
   return (
   <div className="space-y-6">
@@ -272,52 +313,105 @@ export default function CategorySummary({
         </div>
       )}
 
-      {/* Batch size selector — only show when not scanning */}
-      {!progress && (
-        <div style={{ marginBottom: '20px' }}>
-          <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px', marginTop: '0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Emails to scan
-            <span style={{
-              fontSize: '11px',
-              color: '#4f46e5',
-              backgroundColor: '#eef2ff',
-              padding: '2px 8px',
-              borderRadius: '999px',
-              fontWeight: '500',
-            }}>
-              {TIER_LABELS[CURRENT_TIER]} Plan
-            </span>
-          </p>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {batchOptions.map(option => (
-              <button
-                key={option}
-                onClick={() => setBatchSize(option)}
-                style={{
-                  padding: '6px 16px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  backgroundColor: batchSize === option ? '#111827' : '#f3f4f6',
-                  color: batchSize === option ? '#ffffff' : '#374151',
-                  border: batchSize === option ? '1px solid #111827' : '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                }}
-              >
-                {option.toLocaleString()}
-              </button>
-            ))}
-          </div>
-          {CURRENT_TIER === 'free' && (
-            <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '8px', marginBottom: '0' }}>
-              Upgrade to Pro to scan up to 500 at once.{' '}
-              <a href="/pricing" style={{ color: '#4f46e5', textDecoration: 'none', fontWeight: '500' }}>
-                See plans →
-              </a>
-            </p>
-          )}
-        </div>
+      {/* Before first scan — show batch size selector */}
+{!progress && !classifyResult && (
+  <div style={{ marginBottom: '20px' }}>
+    <p style={{
+      fontSize: '12px',
+      color: '#6b7280',
+      marginBottom: '8px',
+      marginTop: '0',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+    }}>
+      How many emails should we scan?
+      <span style={{
+        fontSize: '11px',
+        color: '#0f766e',
+        backgroundColor: '#f0fdfa',
+        padding: '2px 8px',
+        borderRadius: '999px',
+        fontWeight: '500',
+      }}>
+        {TIER_LABELS[tier]} Plan
+      </span>
+      {usage && (
+        <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+          {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
+        </span>
       )}
+    </p>
+
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {batchOptions.map(option => (
+        <button
+          key={option}
+          onClick={() => setBatchSize(option)}
+          style={{
+            padding: '6px 16px',
+            fontSize: '13px',
+            fontWeight: '500',
+            backgroundColor: batchSize === option ? '#111827' : '#f3f4f6',
+            color: batchSize === option ? '#ffffff' : '#374151',
+            border: batchSize === option ? '1px solid #111827' : '1px solid #e5e7eb',
+            borderRadius: '8px',
+            cursor: 'pointer',
+          }}
+        >
+          {option.toLocaleString()} emails
+        </button>
+      ))}
+    </div>
+
+    {tier === 'free' && (
+      <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '8px', marginBottom: '0' }}>
+        Upgrade to Pro to scan up to 500 at once.{' '}
+        <a href="/pricing" style={{ color: '#0d9488', textDecoration: 'none', fontWeight: '500' }}>
+          See plans →
+        </a>
+      </p>
+    )}
+  </div>
+)}
+
+{/* After scan — show what was scanned instead of the selector */}
+{!progress && classifyResult && (
+  <div style={{
+    marginBottom: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+  }}>
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '8px 14px',
+      backgroundColor: '#f0fdfa',
+      border: '1px solid #99f6e4',
+      borderRadius: '8px',
+    }}>
+      <span style={{ color: '#0d9488', fontSize: '14px', fontWeight: '700' }}>✓</span>
+      <span style={{ fontSize: '13px', color: '#0f766e', fontWeight: '500' }}>
+        {(classifyResult.classified || 0).toLocaleString()} emails scanned and sorted
+      </span>
+    </div>
+
+    <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+      Rescan to check for new emails
+      {tier === 'free' && (
+        <>
+          {' · '}
+          <a href="/pricing" style={{ color: '#0d9488', textDecoration: 'none', fontWeight: '500' }}>
+            Scan more with Pro →
+          </a>
+        </>
+      )}
+    </span>
+  </div>
+)}
 
       {/* Progress indicator */}
       {progress && (
@@ -330,8 +424,22 @@ export default function CategorySummary({
         />
       )}
 
-      {/* Scan button */}
-      {!progress && (
+      {/* Scan button, or upgrade prompt if this month's quota is used up */}
+      {!progress && outOfQuota ? (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#fffbeb',
+          border: '1px solid #fde68a',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#92400e',
+        }}>
+          You've used all {(usage?.limit ?? TIER_BATCH_OPTIONS[tier]?.[0]).toLocaleString()} emails included in your {TIER_LABELS[tier]} plan this month.{' '}
+          <a href="/pricing" style={{ color: '#0d9488', textDecoration: 'none', fontWeight: '600' }}>
+            Upgrade to keep cleaning →
+          </a>
+        </div>
+      ) : !progress && (
         <button
           onClick={startScanAndClassify}
           style={{

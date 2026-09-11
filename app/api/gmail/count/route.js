@@ -2,7 +2,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '../../../../lib/authOptions'
 import connectDB from '../../../../lib/mongoose'
 import User from '../../../../models/User'
-import { getEmailCount } from '../../../../lib/gmail'
+import { getEmailCount, isAuthError } from '../../../../lib/gmail';
+import { logError } from '../../../../lib/logger'
 
 export async function GET() {
   // Check the user is logged in
@@ -22,9 +23,19 @@ export async function GET() {
 
     const count = await getEmailCount(user.refreshToken)
     return Response.json({ count })
+    
+    } catch (error) {
+      logError(error, {
+      route: '/api/gmail/count',
+      userId: session?.user?.id,
+    })
 
-  } catch (error) {
-    console.error('Error fetching email count:', error)
+    if (error.code === 'GMAIL_AUTH_EXPIRED') {
+      return Response.json(
+        { error: 'GMAIL_AUTH_EXPIRED', action: 'RECONNECT' },
+        { status: 401 }
+      )
+    }
     return Response.json({ error: error.message }, { status: 500 })
   }
 }

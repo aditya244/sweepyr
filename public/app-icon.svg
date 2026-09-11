@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="t-env" x1="60" y1="40" x2="230" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f978b"></stop><stop offset="1" stop-color="#17b8a9"></stop>
+    </linearGradient>
+    <linearGradient id="t-bris" x1="150" y1="95" x2="240" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1fc7b5"></stop><stop offset="1" stop-color="#4bd8c6"></stop>
+    </linearGradient>
+    <linearGradient id="t-handle" x1="165" y1="105" x2="238" y2="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17b8a9"></stop><stop offset="1" stop-color="#0d867b"></stop>
+    </linearGradient>
+  </defs>
+  <g transform="translate(76,132) scale(1.2)">
+    <path d="M40 78 H74" stroke="url(#t-env)" stroke-width="8" stroke-linecap="round"></path>
+    <path d="M30 98 H70" stroke="url(#t-env)" stroke-width="8" stroke-linecap="round" opacity="0.75"></path>
+    <path d="M46 118 H72" stroke="url(#t-env)" stroke-width="8" stroke-linecap="round" opacity="0.5"></path>
+    <circle cx="22" cy="88" r="4.5" fill="#0f978b"></circle>
+    <circle cx="30" cy="118" r="4.5" fill="#0f978b" opacity="0.6"></circle>
+    <rect x="82" y="52" width="132" height="94" rx="18" stroke="url(#t-env)" stroke-width="10"></rect>
+    <path d="M92 66 L148 110 L204 66" stroke="url(#t-env)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"></path>
+    <g transform="translate(-30,2)"><path d="M147 104 C144 132 150 156 166 176 Q178 181 189 174 Q203 181 217 171 Q232 163 241 148 C231 128 208 110 191 97 Z" fill="url(#t-bris)"></path>
+    <path d="M156 110 C154 136 160 158 172 176" stroke="#fff" stroke-width="2.3" stroke-linecap="round" opacity="0.55" fill="none"></path>
+    <path d="M168 108 C168 134 176 156 190 172" stroke="#fff" stroke-width="2.3" stroke-linecap="round" opacity="0.55" fill="none"></path>
+    <path d="M180 105 C184 130 194 150 212 167" stroke="#fff" stroke-width="2.3" stroke-linecap="round" opacity="0.55" fill="none"></path>
+    <path d="M190 101 C199 124 214 140 233 154" stroke="#fff" stroke-width="2.3" stroke-linecap="round" opacity="0.55" fill="none"></path>
+    <path d="M162 106 L238 28" stroke="#fff" stroke-width="19" stroke-linecap="round"></path>
+    <path d="M145 98 L192 88 L197 107 L150 116 Z" fill="#0c7c72"></path>
+    <path d="M170 100 L236 30" stroke="url(#t-handle)" stroke-width="11" stroke-linecap="round"></path></g>
+    <path d="M244 96 L247 108 L259 111 L247 114 L244 126 L241 114 L229 111 L241 108 Z" fill="#1fc7b5"></path>
+    <path d="M270 132 L272 140 L280 142 L272 144 L270 152 L268 144 L260 142 L268 140 Z" fill="#17b8a9"></path>
+  </g>
+</svg>

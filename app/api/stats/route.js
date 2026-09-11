@@ -51,6 +51,7 @@ export async function GET() {
 
   } catch (error) {
     console.error('Stats error:', error)
+    logError(error, { route: '/api/stats', userId: session?.user?.id })
     return Response.json({ error: error.message }, { status: 500 })
   }
 }
