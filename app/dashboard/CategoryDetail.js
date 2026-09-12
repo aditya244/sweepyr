@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import ConfirmModal from "./ConfirmModal";
+import Toast from "./Toast";
 
 const ALL_CATEGORIES = [
   "Spam",
@@ -38,6 +39,16 @@ const ACTION_BUTTONS = {
     color: "#991b1b",
     backgroundColor: "#fee2e2",
     border: "1px solid #fca5a5",
+  },
+  // Neutral/gray, deliberately distinct from label/archive/trash's
+  // risk-coded colors — this isn't a risk level, it's "reviewed, nothing
+  // to do." Gmail-inert, no confirmation modal (see executeAction/
+  // executeGroupAction — 'no_action' skips setModal and calls directly).
+  no_action: {
+    label: "✓ No Action Needed",
+    color: "#374151",
+    backgroundColor: "#f3f4f6",
+    border: "1px solid #d1d5db",
   },
 };
 
@@ -197,6 +208,7 @@ export default function CategoryDetail({
   // group is null for a whole-category action, or { domain, emails } when
   // the modal was opened from a sender-group's action buttons instead
   const [modal, setModal] = useState({ isOpen: false, action: null, group: null });
+  const [toastMessage, setToastMessage] = useState(null);
   const [actioning, setActioning] = useState(false);
   const [actionResult, setActionResult] = useState(null);
   const [groupActioning, setGroupActioning] = useState(null);
@@ -360,7 +372,15 @@ export default function CategoryDetail({
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      setActionResult(data);
+      if (action === "no_action") {
+        // Gmail-inert — a quiet toast instead of the green actionResult
+        // banner, which implies something happened in Gmail
+        setToastMessage(
+          `${data.affected} email${data.affected === 1 ? "" : "s"} marked as reviewed — they won't be flagged again in future scans.`,
+        );
+      } else {
+        setActionResult(data);
+      }
       // Clear the email list since they've been actioned
       setEmails([]);
       setTotal(0);
@@ -394,6 +414,11 @@ export default function CategoryDetail({
         prev.filter((e) => !messageIds.includes(e.messageId)),
       );
       setTotal((prev) => prev - messageIds.length);
+      if (action === "no_action") {
+        setToastMessage(
+          `${messageIds.length} email${messageIds.length === 1 ? "" : "s"} marked as reviewed — they won't be flagged again in future scans.`,
+        );
+      }
       onActionComplete(category);
       onStatsRefresh();
       onCountRefresh();
@@ -467,18 +492,23 @@ export default function CategoryDetail({
               {/* Existing action buttons */}
               {total > 0 && !actionResult && !actioning && (
                 <div style={{ display: "flex", gap: "8px" }}>
-                  {["label", "archive", "trash"].map((action) => {
+                  {["label", "archive", "trash", "no_action"].map((action) => {
                     const btn = ACTION_BUTTONS[action];
                     const isTrashHighRisk = action === "trash" && isHighRisk;
                     const tooltip = {
                       label: `Adds a Sweepyr/${category} label in Gmail. Emails stay in your inbox.`,
                       archive: "Removes from inbox, keeps in All Mail. Findable anytime via search.",
                       trash: "Moves to Gmail Trash. Recoverable for 30 days.",
+                      no_action: "Marks these as reviewed. Nothing changes in Gmail, and they won't be flagged for review again.",
                     }[action];
                     return (
                       <button
                         key={action}
-                        onClick={() => setModal({ isOpen: true, action })}
+                        onClick={() =>
+                          action === "no_action"
+                            ? executeAction("no_action")
+                            : setModal({ isOpen: true, action })
+                        }
                         title={tooltip}
                         style={{
                           padding: "6px 12px",
@@ -825,6 +855,27 @@ export default function CategoryDetail({
                                 }}
                               >
                                 🏷️ Label all {group.emails.length}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setOpenGroupMenu(null);
+                                  executeGroupAction("no_action", group.domain, group.emails);
+                                }}
+                                title={`Marks all ${group.emails.length} emails from ${group.domain} as reviewed. Nothing changes in Gmail, and they won't be flagged for review again.`}
+                                style={{
+                                  width: "100%",
+                                  textAlign: "left",
+                                  padding: "8px 10px",
+                                  fontSize: "12px",
+                                  backgroundColor: "transparent",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  cursor: "pointer",
+                                  color: "#374151",
+                                }}
+                              >
+                                ✓ No action needed for {group.emails.length}
                               </button>
 
                               <div
@@ -1237,6 +1288,7 @@ export default function CategoryDetail({
         }}
         onCancel={() => setModal({ isOpen: false, action: null, group: null })}
       />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
     </>
   );
 }

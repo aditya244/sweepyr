@@ -4,7 +4,7 @@ import connectDB from '../../../../lib/mongoose'
 import User from '../../../../models/User'
 import Email from '../../../../models/Email'
 import { logError } from '../../../../lib/logger'
-import { getCleanupLimit, ensureFreshUsage } from '../../../../lib/tierLimits'
+import { getEffectiveLimit, ensureFreshUsage } from '../../../../lib/tierLimits'
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -22,7 +22,7 @@ export async function GET() {
 
     await ensureFreshUsage(user)
     const tier = user.tier || 'free'
-    const limit = getCleanupLimit(tier)
+    const limit = getEffectiveLimit(user)
     const used = user.usage?.cleanupCount || 0
 
     // Check if user has any processed exails

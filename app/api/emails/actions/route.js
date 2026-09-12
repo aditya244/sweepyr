@@ -20,7 +20,10 @@ export async function POST(request) {
   const { action, category } = await request.json()
 
   // Validate action type
-  if (!['archive', 'trash', 'label'].includes(action)) {
+  // 'no_action' — "No Action Needed": Gmail-inert, same as Reclassify. Marks
+  // emails as reviewed without touching Gmail at all, so they stop counting
+  // toward the unactioned backlog and stop being surfaced for review.
+  if (!['archive', 'trash', 'label', 'no_action'].includes(action)) {
     return Response.json({ error: 'Invalid action' }, { status: 400 })
   }
 
@@ -56,6 +59,10 @@ export async function POST(request) {
       const labelName = `Sweepyr/${category}`
       const labelId = await getOrCreateLabel(user.refreshToken, labelName)
       result = await applyLabel(user.refreshToken, messageIds, labelId)
+
+    } else if (action === 'no_action') {
+      // No Gmail call — this action only ever touches our database
+      result = messageIds.length
     }
 
     // Save action history
@@ -71,13 +78,20 @@ export async function POST(request) {
     // Mark emails as processed with the action taken
     // Mark emails with action taken AND clear their category
 // so they don't appear in the category list anymore
+//
+// isProcessed stays true for 'no_action' specifically (every other action
+// resets it to false) — these were genuinely reviewed, so they should
+// never be picked up for re-classification even in an edge case where
+// they somehow get re-fetched. The primary defense against re-seeing them
+// at all is the fetch-skip in /api/gmail/process, which doesn't depend on
+// this flag — this is just a second layer.
 await Email.updateMany(
   { userId: user._id, category },
   {
     $set: {
       actionTaken: action,
       category: null,
-      isProcessed: false,
+      isProcessed: action === 'no_action' ? true : false,
     }
   }
 )

@@ -192,7 +192,13 @@ Location: India`,
         justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>📬</span>
+          <img src="/app-icon-512.png" style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '10px',
+            objectFit: 'cover',
+            flexShrink: 0,
+          }} alt="Sweepyr" />
           <span style={{ fontWeight: '700', color: '#111827' }}>Sweepyr</span>
         </div>
         <div style={{ display: 'flex', gap: '24px' }}>

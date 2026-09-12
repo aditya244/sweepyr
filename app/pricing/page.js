@@ -334,7 +334,13 @@ export default function PricingPage() {
       {/* Footer */}
       <footer style={{ borderTop: '1px solid #f3f4f6', padding: '32px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>📬</span>
+          <img src="/app-icon-512.png" style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '10px',
+            objectFit: 'cover',
+            flexShrink: 0,
+          }} alt="Sweepyr" />
           <span style={{ fontWeight: '700', color: '#111827' }}>Sweepyr</span>
         </div>
         <p style={{ fontSize: '12px', color: '#9ca3af', margin: '0' }}>

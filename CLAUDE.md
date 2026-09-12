@@ -155,6 +155,11 @@ NEXTAUTH_SECRET            Generate with: openssl rand -base64 32
 GEMINI_API_KEY             From aistudio.google.com
 SENTRY_DSN                 Server-side Sentry DSN
 NEXT_PUBLIC_SENTRY_DSN     Client-side Sentry DSN (needs NEXT_PUBLIC_ prefix)
+TESTER_EMAILS              Optional. Comma-separated emails auto-assigned the
+                           'tester' tier on sign-in (one-time 1000-email
+                           allocation, no monthly renewal). Blank = no testers.
+ADMIN_EMAILS               Optional. Comma-separated emails allowed to view
+                           /admin/ai-usage. Blank = page redirects everyone.
 ```
 
 ### External Setup Required

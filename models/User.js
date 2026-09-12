@@ -39,6 +39,10 @@ const UserSchema = new mongoose.Schema(
       cleanupCount: { type: Number, default: 0 },
       monitorCount: { type: Number, default: 0 },
       resetAt: { type: Date, default: () => new Date() },
+      // Self-serve top-ups, tester tier only — each unit is one extra scan
+      // credit (TESTER_CREDIT_SIZE emails, see lib/tierLimits.js). Never
+      // read for any other tier.
+      bonusCredits: { type: Number, default: 0 },
     },
   },
   {

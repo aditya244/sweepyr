@@ -5,8 +5,8 @@ import User from "../../../../models/User";
 import Email from "../../../../models/Email";
 import { getMessageIds, getEmailMetadata } from "../../../../lib/gmail";
 import { classifyEmail } from "../../../../lib/classifier/index";
-import { logError, logInfo } from '../../../../lib/logger';
-import { getCleanupLimit, ensureFreshUsage } from '../../../../lib/tierLimits';
+import { logError, logInfo, logWarning } from '../../../../lib/logger';
+import { getEffectiveLimit, ensureFreshUsage, MAX_UNACTIONED_BACKLOG } from '../../../../lib/tierLimits';
 
 export async function GET(request) {
   console.log("=== SSE route hit ===");
@@ -58,14 +58,17 @@ export async function GET(request) {
       await ensureFreshUsage(user);
 
       const userTier = user.tier || "free";
-      const cleanupLimit = getCleanupLimit(userTier);
+      const cleanupLimit = getEffectiveLimit(user);
       const alreadyUsed = user.usage.cleanupCount || 0;
       const remaining = Math.max(0, cleanupLimit - alreadyUsed);
 
       if (remaining <= 0) {
         send({
           error: "USAGE_LIMIT_REACHED",
-          message: `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
+          message:
+            userTier === "tester"
+              ? "You've used all your testing credits."
+              : `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
           limit: cleanupLimit,
           used: alreadyUsed,
         });
@@ -73,9 +76,36 @@ export async function GET(request) {
         return;
       }
 
+      // Guard against endless rescanning without ever reviewing anything —
+      // applies to every tier, not just testers. See MAX_UNACTIONED_BACKLOG
+      // in lib/tierLimits.js for why this exists alongside net-new metering.
+      const backlogCount = await Email.countDocuments({
+        userId: user._id,
+        isProcessed: true,
+        actionTaken: null,
+      });
+
+      if (backlogCount >= MAX_UNACTIONED_BACKLOG) {
+        send({
+          error: "BACKLOG_TOO_LARGE",
+          message: `You have ${backlogCount.toLocaleString()} emails waiting for review. Archive, trash, or label some before scanning more.`,
+          backlogCount,
+        });
+        controller.close();
+        return;
+      }
+
       const batchSize = Math.min(requestedSize, remaining);
 
-      // ── Stage 1: Fetch message IDs ──────────────────────────
+      // ── Stage 1: Fetch message IDs — new-to-us only ─────────
+      // Previously fetched whatever sat in the Gmail inbox regardless of
+      // whether we'd already scanned it before, re-downloading metadata for
+      // the same familiar messages on every scan (they stay in the inbox
+      // until archived/trashed — scanning alone never removes them). Now
+      // pages through the inbox, checking each page against what we already
+      // have on file, and only keeps message IDs we've genuinely never seen.
+      // "batchSize" now means "up to N messages new to us," not "the top N
+      // in the inbox regardless of familiarity."
       send({
         stage: "scanning",
         message: "Fetching email list...",
@@ -83,18 +113,48 @@ export async function GET(request) {
         total: batchSize,
       });
 
-      const { messageIds } = await getMessageIds(user.refreshToken, batchSize);
+      const MAX_EXAMINED = 5000; // safety cap so a huge, mostly-known inbox
+      // can't make one scan page through it indefinitely
+      let messageIds = [];
+      let pageToken = null;
+      let examinedCount = 0;
+
+      do {
+        const page = await getMessageIds(user.refreshToken, 500, pageToken);
+        if (page.messageIds.length === 0) break;
+
+        examinedCount += page.messageIds.length;
+
+        const knownDocs = await Email.find({
+          userId: user._id,
+          messageId: { $in: page.messageIds.map((m) => m.id) },
+        }).select("messageId").lean();
+        const knownIds = new Set(knownDocs.map((e) => e.messageId));
+
+        messageIds.push(...page.messageIds.filter((m) => !knownIds.has(m.id)));
+        pageToken = page.nextPageToken;
+      } while (
+        messageIds.length < batchSize &&
+        pageToken &&
+        examinedCount < MAX_EXAMINED
+      );
+
+      messageIds = messageIds.slice(0, batchSize);
       const total = messageIds.length;
 
       send({
         stage: "scanning",
-        message: `Found ${total} emails. Fetching metadata...`,
+        message:
+          total === 0
+            ? "No new emails found — everything in your inbox has already been scanned."
+            : `Found ${total} new email${total === 1 ? "" : "s"}. Fetching metadata...`,
         progress: 0,
         total,
       });
 
       // ── Stage 2: Fetch metadata in batches of 50 ───────────
       const emails = [];
+      let failedCount = 0;
       const metadataBatchSize = 50;
 
       for (let i = 0; i < messageIds.length; i += metadataBatchSize) {
@@ -108,8 +168,24 @@ export async function GET(request) {
         const successful = results
           .filter((r) => r.status === "fulfilled")
           .map((r) => r.value);
+        const failed = results.filter((r) => r.status === "rejected");
 
         emails.push(...successful);
+        failedCount += failed.length;
+
+        // Previously silent — a chunk could fail entirely (e.g. Gmail API
+        // rate limiting on rapid back-to-back scans) with zero visibility,
+        // making "why did this scan process fewer emails than expected"
+        // undiagnosable. Now logged with a sample error to actually see why.
+        if (failed.length > 0) {
+          logWarning("Some emails failed to fetch during scan", {
+            route: "/api/gmail/process",
+            userId: session?.user?.id,
+            chunkSize: chunk.length,
+            failedInChunk: failed.length,
+            sampleError: failed[0].reason?.message || String(failed[0].reason),
+          });
+        }
 
         // Save to MongoDB
         for (const email of successful) {
@@ -136,15 +212,14 @@ export async function GET(request) {
 
       send({
         stage: "scanning",
-        message: `Scanned ${emails.length} emails. Starting classification...`,
+        message:
+          failedCount > 0
+            ? `Scanned ${emails.length} emails (${failedCount} failed to fetch — see below). Starting classification...`
+            : `Scanned ${emails.length} emails. Starting classification...`,
         progress: total,
         total,
+        failedCount,
       });
-
-      // Meter usage against the monthly cleanup limit — counts emails
-      // actually fetched this request, not just the requested batch size
-      user.usage.cleanupCount = alreadyUsed + emails.length;
-      await user.save();
 
       // ── Stage 3: Classify emails ────────────────────────────
       // Fetch unprocessed emails from DB
@@ -205,6 +280,16 @@ export async function GET(request) {
             percent: classifyPercent, // now matches the X/Y numbers shown
           })
       }
+
+      // Meter usage against the monthly cleanup limit — counts emails
+      // actually newly classified this request (net-new), not raw emails
+      // fetched. Rescanning an inbox you'd already scanned before used to
+      // charge the full fetch count even when most of it was duplicates
+      // you already had — meaning the quota-consumed number and the
+      // "emails processed" number shown on the dashboard could disagree.
+      // Metering by `classified` makes them the same number everywhere.
+      user.usage.cleanupCount = alreadyUsed + classified;
+      await user.save();
 
       // ── Done ────────────────────────────────────────────────
       send({

@@ -4,7 +4,10 @@ import { useState, useRef, useEffect} from "react";
 import CategorySummary from "./CategorySummary";
 import CategoryDetail from "./CategoryDetail";
 import StatsBar from "./StatsBar";
-import MonitoringFeed from "./MonitoringFeed";
+// UNUSED — commented out, not deleted. Live monitoring (Phase 6 backend)
+// isn't built yet, so this only ever showed an empty "Watching your inbox"
+// state. Hidden until the backend exists rather than showing empty space.
+// import MonitoringFeed from "./MonitoringFeed";
 import ReconnectBanner from "./ReconnectBanner";
 import OnboardingWelcome from "./OnboardingWelcome";
 
@@ -120,7 +123,7 @@ export default function DashboardClient({ userName }) {
     )}
 
     <StatsBar refreshKey={statsRefreshKey} emailCount={emailCount} />
-    <MonitoringFeed onStatsRefresh={refreshStats} />
+    {/* <MonitoringFeed onStatsRefresh={refreshStats} /> — see import comment above */}
 
     {/* Show onboarding for new users instead of the normal mailbox card */}
     {userStatusLoaded && isNewUser && !scanDone ? (
@@ -160,6 +163,7 @@ export default function DashboardClient({ userName }) {
           tier={tier}
           usage={usage}
           onUsageRefresh={checkUserStatus}
+          onStatsRefresh={refreshStats}
         />
       </div>
     )}

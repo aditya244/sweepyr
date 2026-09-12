@@ -88,6 +88,10 @@ const TIER_BATCH_OPTIONS = {
   pro:       [100, 200, 500],
   annual:    [100, 200, 500, 1000],
   deepclean: [100, 500, 1000, 2500, 5000],
+  // Fixed at 200, not a menu — this is what makes 1000 total (TIER_LIMITS.tester)
+  // behave like "5 discrete credits" rather than a flexible pool testers
+  // could split however they want.
+  tester:    [200],
 }
 
 const TIER_LABELS = {
@@ -95,6 +99,7 @@ const TIER_LABELS = {
   pro:       'Pro',
   annual:    'Annual',
   deepclean: 'Deep Clean',
+  tester:    'Tester',
 }
 
 export default function CategorySummary({
@@ -116,9 +121,29 @@ export default function CategorySummary({
   tier = 'free',
   usage,
   onUsageRefresh,
+  onStatsRefresh,
 }) {
   const [limitReached, setLimitReached] = useState(false);
+  const [backlogMessage, setBacklogMessage] = useState(null);
+  const [grantingCredit, setGrantingCredit] = useState(false);
   const outOfQuota = limitReached || (usage && usage.remaining <= 0);
+  const testerCreditSize = TIER_BATCH_OPTIONS.tester[0];
+  const testerCreditsRemaining = usage ? Math.floor(usage.remaining / testerCreditSize) : 0;
+
+  async function getMoreTesterCredit() {
+    try {
+      setGrantingCredit(true);
+      const res = await fetch("/api/user/tester-credit", { method: "POST" });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setLimitReached(false);
+      onUsageRefresh?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGrantingCredit(false);
+    }
+  }
 
   async function fetchEmailCount() {
     try {
@@ -142,6 +167,15 @@ export default function CategorySummary({
   const [progress, setProgress] = useState(null);
   const batchOptions = TIER_BATCH_OPTIONS[tier] || [100]
   const [batchSize, setBatchSize] = useState(batchOptions[batchOptions.length - 1])
+
+  // tier arrives asynchronously (fetched from /api/user/status after mount),
+  // starting as 'free' before flipping to the real value — batchSize's
+  // useState above only sees whatever tier was at first render and never
+  // re-syncs on its own, so without this a tester's batch size gets stuck
+  // at the free-tier default (100) instead of their real option (200).
+  useEffect(() => {
+    setBatchSize(batchOptions[batchOptions.length - 1]);
+  }, [tier]);
 
   useEffect(() => {
     loadExistingSummary();
@@ -178,6 +212,7 @@ export default function CategorySummary({
     try {
       setError(null);
       setLimitReached(false);
+      setBacklogMessage(null);
       setScanDone(false);
       setClassifyResult(null);
 
@@ -206,6 +241,13 @@ export default function CategorySummary({
           return;
         }
 
+        if (data.error === 'BACKLOG_TOO_LARGE') {
+          setBacklogMessage(data.message);
+          setProgress(null);
+          eventSource.close();
+          return;
+        }
+
         if (data.error === 'GMAIL_AUTH_EXPIRED') {
           onAuthError()
           eventSource.close()
@@ -221,15 +263,20 @@ export default function CategorySummary({
         }
 
         if (data.stage === "done") {
-          setClassifyResult({
-            summary: data.summary,
-            layerStats: data.layerStats,
-            classified: data.classified,
-          });
+          // Re-fetch the true cumulative summary rather than using
+          // data.summary directly — that's only this run's classification
+          // delta (e.g. just 1 email on a rescan that found mostly
+          // already-processed emails), and setting classifyResult straight
+          // from it was overwriting the whole dashboard down to whatever
+          // tiny amount this specific scan classified, discarding every
+          // category previously shown even though the database still had
+          // everything correctly categorized.
+          loadExistingSummary();
           setScanDone(true);
           setProgress(null);
           eventSource.close();
           onUsageRefresh?.();
+          onStatsRefresh?.();
           return;
         }
 
@@ -336,7 +383,12 @@ export default function CategorySummary({
       }}>
         {TIER_LABELS[tier]} Plan
       </span>
-      {usage && (
+      {usage && tier === 'tester' && (
+        <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+          {testerCreditsRemaining} scan credit{testerCreditsRemaining === 1 ? '' : 's'} remaining
+        </span>
+      )}
+      {usage && tier !== 'tester' && (
         <span style={{ fontSize: '11px', color: '#9ca3af' }}>
           {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
         </span>
@@ -399,6 +451,27 @@ export default function CategorySummary({
       </span>
     </div>
 
+    <span style={{
+      fontSize: '11px',
+      color: '#0f766e',
+      backgroundColor: '#f0fdfa',
+      padding: '2px 8px',
+      borderRadius: '999px',
+      fontWeight: '500',
+    }}>
+      {TIER_LABELS[tier]} Plan
+    </span>
+    {usage && tier === 'tester' && (
+      <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+        {testerCreditsRemaining} scan credit{testerCreditsRemaining === 1 ? '' : 's'} remaining
+      </span>
+    )}
+    {usage && tier !== 'tester' && (
+      <span style={{ fontSize: '11px', color: '#9ca3af' }}>
+        {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
+      </span>
+    )}
+
     <span style={{ fontSize: '12px', color: '#9ca3af' }}>
       Rescan to check for new emails
       {tier === 'free' && (
@@ -424,8 +497,57 @@ export default function CategorySummary({
         />
       )}
 
-      {/* Scan button, or upgrade prompt if this month's quota is used up */}
-      {!progress && outOfQuota ? (
+      {/* Backlog cap — applies to every tier, shown before the quota states */}
+      {!progress && backlogMessage && (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#fffbeb',
+          border: '1px solid #fde68a',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#92400e',
+          marginBottom: '12px',
+        }}>
+          {backlogMessage}
+        </div>
+      )}
+
+      {/* Scan button, or quota-exhausted state — tester tier gets a
+          self-serve top-up, no approval needed; everyone else is unchanged */}
+      {!progress && backlogMessage ? null : !progress && outOfQuota && tier === 'tester' ? (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#f0fdfa',
+          border: '1px solid #99f6e4',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#0f766e',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+        }}>
+          <span>You've used all your testing credits.</span>
+          <button
+            onClick={getMoreTesterCredit}
+            disabled={grantingCredit}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: grantingCredit ? '#9ca3af' : '#0d9488',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: grantingCredit ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {grantingCredit ? 'Adding credit…' : `+ Get 1 more credit (${testerCreditSize} emails)`}
+          </button>
+        </div>
+      ) : !progress && outOfQuota ? (
         <div style={{
           padding: '12px 16px',
           backgroundColor: '#fffbeb',

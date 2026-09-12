@@ -22,6 +22,214 @@
 
 ## Shipped
 
+### Skip re-fetching known emails, plus "No Action Needed"
+- **Shipped:** 2026-09-12
+- **What it is:** Two changes addressing the same root problem —
+  repeated scans kept re-examining the same familiar emails instead of
+  finding genuinely new ones:
+  1. **Scanning now skips messages we already have on file.** Previously
+     every scan re-fetched metadata for whatever sat in the Gmail
+     inbox, regardless of whether we'd already scanned it before —
+     since scanning/classifying never removes anything from the actual
+     Gmail inbox (only archive/trash do), the same messages kept
+     reappearing every scan. Now pages through the inbox checking each
+     page against what's already known, only fetching metadata for
+     messages never seen before. "Scan 200" now means "up to 200
+     messages new to us," not "the top 200 in my inbox regardless of
+     familiarity."
+  2. **New "No Action Needed" action** (category-level button, and in
+     the sender-group `•••` menu) — Gmail-inert, same as Reclassify.
+     Marks emails as reviewed without touching Gmail, so they stop
+     counting toward the unactioned backlog and stop being surfaced
+     for review. Confirmed via a small teal toast bar (not a modal),
+     e.g. *"12 emails marked as reviewed — they won't be flagged again
+     in future scans."*
+- **Why:** Discovered via tester testing — a user who reviews a
+  category but doesn't want to archive/trash/label it (e.g. "this is
+  all fine as-is") had no way to say so, so those emails kept
+  re-appearing as backlog and getting re-fetched on every future scan.
+- **Impacted pages (test these):** Category detail — the new "✓ No
+  Action Needed" button at category level and in the group `•••`
+  menu; confirm the toast appears and the emails disappear from the
+  category view. Then rescan and confirm previously-scanned emails
+  (marked or not) aren't re-fetched — check the "Found N new emails"
+  scan progress message reflects only genuinely new messages.
+- **Before:** Every scan re-fetched the same familiar messages; no way
+  to mark "reviewed, no action needed" short of literally archiving.
+- **After:** Scans find what's actually new. Reviewing something and
+  deciding it needs no Gmail action is now a first-class action.
+- **Scalability note:** the "already known" check reuses the existing
+  `{userId, messageId}` compound index (built for duplicate
+  prevention), batched one query per Gmail page rather than one query
+  per message — so it doesn't slow down as total users or total scans
+  grow. A hard cap (5,000 messages examined per scan request) bounds
+  worst-case latency for a large, mostly-already-known inbox.
+
+### Admin AI usage report: date ranges + CSV/TXT export
+- **Shipped:** 2026-09-11
+- **What it is:** `/admin/ai-usage` now has Daily/Weekly/Monthly/All-time
+  tabs (rolling 24h/7d/30d windows, via `?range=` URL param) and two
+  download buttons (⬇ CSV, ⬇ TXT) that export whatever range is
+  currently selected.
+- **Why:** Requested to make the AI-cost domain data easier to work
+  with over time (spot trends, not just an all-time snapshot) and to
+  get it out of the browser for offline analysis/sharing.
+- **Impacted pages (test these):** `/admin/ai-usage` — click each tab,
+  confirm the numbers change appropriately (fewer/more depending on
+  range). Click both download buttons for a couple of ranges, confirm
+  the downloaded file's range/numbers match what's on screen.
+- **Before:** All-time only, view-in-browser only.
+- **After:** Four time windows, downloadable as CSV or plain text via
+  a new `GET /api/admin/ai-usage-export` endpoint (same `ADMIN_EMAILS`
+  gate as the page itself).
+- **Implementation note:** date filtering uses `updatedAt` as a proxy
+  for "when was this classified" — there's no dedicated classification
+  timestamp on `Email`, but `updatedAt` is set exactly when the
+  classification stage writes its result, so it's a close match in
+  practice.
+
+### Live monitoring feed hidden (Phase 6 not built)
+- **Shipped:** 2026-09-11
+- **What it is:** `<MonitoringFeed>` commented out of the dashboard —
+  it only ever showed an empty "Watching your inbox" placeholder since
+  the live monitoring backend doesn't exist yet.
+- **Why:** Requested to stop showing empty space on the dashboard for
+  a feature that isn't live yet.
+- **Impacted pages (test these):** Dashboard home — confirm no gap or
+  empty section appears where the feed used to be.
+- **Before:** Always-empty "📡 Watching your inbox" placeholder shown
+  to every user.
+- **After:** Nothing shown. Commented, not deleted — trivial to bring
+  back once Phase 6 actually exists.
+
+### Net-new quota metering + backlog cap
+- **Shipped:** 2026-09-11
+- **What it is:** Quota consumption now charges only net-new emails
+  actually classified this scan, not raw emails fetched (which
+  previously included re-fetches of duplicates already scanned
+  before). To prevent the abuse this opens up (rescanning repeatedly
+  for near-zero quota cost), a new guard blocks scanning once a user
+  has 1,000+ categorized-but-unactioned emails sitting unreviewed —
+  applies to every tier, not just testers.
+- **Why:** Found via tester testing — clicking "scan 200" could show
+  the displayed processed count go up by far less than 200 (duplicates
+  don't recount), while the full 200 was still charged against quota.
+  For a paying user on a monthly email allowance, that mismatch is a
+  real trust problem, not just a display quirk.
+- **Impacted pages (test these):** Dashboard mailbox card — rescan an
+  inbox with few new emails and confirm quota drops by the *displayed*
+  processed count, not the raw scan size. Build up 1,000+ unactioned
+  categorized emails (or lower `MAX_UNACTIONED_BACKLOG` temporarily to
+  test) and confirm scanning blocks with a review-first message.
+- **Before:** Quota charged for raw fetches (including duplicates);
+  no guard against repeated no-op rescanning.
+- **After:** Quota, "Your Mailbox," and "Your Progress" all agree on
+  the same number. Endless rescanning is blocked by a backlog check
+  instead, which doubles as a genuinely useful "go review your inbox"
+  nudge rather than an arbitrary rate limit.
+
+### Fix: scans silently under-counted with no way to tell why
+- **Shipped:** 2026-09-11
+- **What it is:** Found during tester credit testing — repeated scans
+  in quick succession returned inconsistent, lower-than-requested
+  email counts (e.g. 100, then 21, then 0 successfully fetched) with
+  zero explanation anywhere. Two compounding causes fixed:
+  1. `getMessageIds` only made a single `messages.list` call — Gmail
+     can return fewer than requested in one page even when more exist
+     (label filtering happens after the page-size cap server-side).
+     Now follows `nextPageToken` until it actually collects the
+     requested count or runs out of pages.
+  2. Failed metadata fetches during scanning were silently dropped —
+     `Promise.allSettled` filtered to successes only, with no logging
+     at all. A whole chunk could fail (e.g. Gmail API rate limiting
+     from back-to-back scans) and the only visible symptom was "fewer
+     emails than expected," undiagnosable from the UI or server logs.
+- **Why:** Directly blocked understanding tester credit consumption —
+  "why did this scan only process 21 emails" had no answer before this.
+- **Impacted pages (test these):** Run several scans back-to-back on
+  an account with a large-ish inbox; watch the scan progress message —
+  should now say "Scanned X emails (N failed to fetch — see below)"
+  if any fetches fail, instead of just a lower number with no context.
+- **Before:** Silent, inconsistent under-counting with zero diagnostic
+  signal.
+- **After:** Either the pagination fix resolves it outright, or a
+  failure actually shows up in the progress message and Sentry
+  (`logWarning`) with a sample error to investigate.
+
+### Self-serve tester credit top-ups
+- **Shipped:** 2026-09-11
+- **What it is:** Testers now see "N scan credits remaining" (not an
+  email count) in the mailbox card, and once exhausted, a "+ Get 1
+  more credit (200 emails)" button that grants it instantly — no
+  approval, no request/notify flow. Every other tier is completely
+  unaffected — this only ever reads/writes for `tier === 'tester'`.
+- **Why:** The original one-time 1000-email allocation had no way to
+  get more without you manually editing MongoDB. For a handful of
+  trusted testing-phase friends, self-serve is simpler than building
+  any kind of request-and-approve flow.
+- **Impacted pages (test these):** Dashboard mailbox card, signed in as
+  a tester — check the credit count display, exhaust it (or use the
+  button repeatedly), confirm the button grants a credit and the scan
+  button re-enables immediately via `onUsageRefresh`. Also confirm a
+  **non-tester** account sees no change at all — the "X of Y emails
+  used this month" text and the `/pricing`-linking upgrade box should
+  render exactly as before.
+- **Before:** Testers who ran out of credits were stuck, with a
+  misleading "this month" message and a dead link to a non-functional
+  pricing page.
+- **After:** One click, instantly back to cleaning. Implemented as a
+  `usage.bonusCredits` counter, only ever read by a new
+  `getEffectiveLimit(user)` helper for tester tier — `getCleanupLimit()`
+  (used by every other tier) is untouched.
+- **Deliberate design note:** "1 credit" is not a hard 200-email
+  contract. Metering charges whatever a scan actually fetches
+  (`emails.length`, e.g. 179 on a smaller inbox), not a flat 200 per
+  click — "N scan credits remaining" (`floor(remaining / 200)`) is a
+  display approximation, not an exact count. Confirmed as the intended
+  behavior over a flat-200-per-scan alternative: fair metering (never
+  charged for emails that don't exist) was preferred over a perfectly
+  predictable credit count.
+
+### Tester tier + whitelist
+- **Shipped:** 2026-09-11
+- **What it is:** A new `tester` tier for whitelisting friends during the
+  testing phase — a one-time 1000-email allocation (5 scans of 200,
+  fixed batch size) that does **not** renew monthly like every other
+  tier. Add an email to the `TESTER_EMAILS` env var and it's
+  auto-assigned on their next sign-in.
+- **Why:** You want to give testing-phase friends more than the free
+  tier's 100/month, but in bounded, non-recurring chunks — not an
+  ongoing subscription-like allowance.
+- **Impacted pages (test these):** Sign in with a whitelisted email →
+  dashboard should show "Tester Plan" and a 200-email-only batch
+  selector. Run 5 scans → the 6th should show the same upgrade-style
+  quota-exhausted message as free tier, and it should **not** clear
+  after 30 days the way free/pro/annual do.
+- **Before:** No way to grant anyone more than the standard tier limits
+  without building real billing.
+- **After:** Add an email to one env var, done.
+
+### AI usage report (admin-only)
+- **Shipped:** 2026-09-11
+- **What it is:** `/admin/ai-usage`, gated to emails in `ADMIN_EMAILS` —
+  shows the rules/domain/AI/user-corrected classification split
+  across all users, plus a table of every domain that's hit the AI
+  layer with its share of total AI volume.
+- **Why:** To find which senders are costing real Gemini API calls and
+  are common enough to be worth hardcoding into
+  `lib/classifier/rules.js`'s `KNOWN_DOMAINS` — any domain appearing
+  in this report is, by definition, one the rule engine doesn't handle
+  yet. The underlying data already existed on every `Email` document
+  (`classificationSource`, `from`); this just makes it visible without
+  hand-writing MongoDB aggregation queries each time.
+- **Impacted pages (test these):** `/admin/ai-usage` — as a non-admin,
+  should redirect to `/`. As an admin (email in `ADMIN_EMAILS`), should
+  show the summary tiles and domain table.
+- **Before:** No way to see this without opening MongoDB Atlas and
+  writing an aggregation pipeline by hand.
+- **After:** A bookmarkable page, viewable from anywhere you're signed
+  in as an admin.
+
 ### Build/deploy versioning
 - **Shipped:** 2026-08-10
 - **What it is:** Every deployment now exposes what commit, branch, and
