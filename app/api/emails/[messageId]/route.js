@@ -28,6 +28,17 @@ export async function PATCH(request, { params }) {
       {
         category,
         classificationSource: 'user',
+        // Durable record of the correction. `category` alone can't carry
+        // it — a later archive/trash nulls that field, which would leave
+        // only classificationSource: 'user' behind: enough to know a human
+        // disagreed with the classifier, but not what they said instead.
+        // Paired with classifiedAs (set at classify time and never
+        // overwritten), this is what lets the AI usage report show
+        // "classifier said X, users corrected it to Y, N times".
+        correctedAs: {
+          category,
+          at: new Date(),
+        },
       },
       { new: true }
     )

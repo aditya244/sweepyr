@@ -4,6 +4,7 @@ import connectDB from '../../../../lib/mongoose'
 import {
   getAiUsageReport,
   resolveRangeStart,
+  sortAiDomains,
   formatReportAsCsv,
   formatReportAsText,
 } from '../../../../lib/aiUsageReport'
@@ -28,9 +29,13 @@ export async function GET(request) {
     ? searchParams.get('range')
     : 'all'
   const format = searchParams.get('format') === 'txt' ? 'txt' : 'csv'
+  // Mirrors the sort toggle on /admin/ai-usage, so a download matches the
+  // ordering of the table it was downloaded from.
+  const sort = searchParams.get('sort') === 'agreement' ? 'agreement' : 'hits'
 
   await connectDB()
   const report = await getAiUsageReport(resolveRangeStart(range))
+  report.aiDomains = sortAiDomains(report.aiDomains, sort)
 
   const body = format === 'txt' ? formatReportAsText(report, range) : formatReportAsCsv(report, range)
   const contentType = format === 'txt' ? 'text/plain' : 'text/csv'

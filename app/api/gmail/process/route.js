@@ -255,6 +255,20 @@ export async function GET(request) {
               category,
               confidence,
               classificationSource,
+              // Durable copy of the same verdict. The three fields above
+              // are working state the dashboard mutates (actions null out
+              // `category`, a reclassify rewrites `classificationSource`);
+              // this one is never written again, so the AI usage report
+              // can still tell what the classifier originally decided
+              // after the user has acted on their inbox. Safe to write
+              // unconditionally here — the query above only selects
+              // isProcessed: false, so an email reaches this line once.
+              classifiedAs: {
+                category,
+                confidence,
+                source: classificationSource,
+                at: new Date(),
+              },
               isProcessed: true,
             });
 

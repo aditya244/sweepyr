@@ -57,6 +57,36 @@ const EmailSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // ── Immutable classification history ────────────────────────
+    // The live `category` / `classificationSource` fields above are
+    // mutable working state: actions null out `category`, and a user
+    // reclassify overwrites both. That's correct for the dashboard, but
+    // it destroys the record of what the classifier originally decided —
+    // which is exactly what lib/aiUsageReport.js needs to work out which
+    // domains are safe to promote into KNOWN_DOMAINS.
+    //
+    // These two sub-documents are the durable record. Each is written
+    // once and never mutated again, so they survive every later action.
+    classifiedAs: {
+      // What the classifier decided, written once at classify time by
+      // /api/gmail/process. Never overwritten — not even by a reclassify.
+      category: { type: String, default: null },
+      confidence: { type: Number, default: null },
+      source: { type: String, default: null }, // 'rules' | 'domain' | 'ai'
+      // Dedicated classification timestamp. `updatedAt` can't serve this
+      // purpose — any later archive/trash bumps it, so it reports when
+      // the email was last *touched*, not when it was classified.
+      at: { type: Date, default: null },
+    },
+    correctedAs: {
+      // Set only when a user reclassifies (PATCH /api/emails/[messageId]).
+      // Without this, a reclassify-then-archive sequence leaves only
+      // classificationSource: 'user' behind — you'd know a human
+      // disagreed but not what they said instead, losing half of the
+      // most valuable signal for fixing rules.
+      category: { type: String, default: null },
+      at: { type: Date, default: null },
+    },
     isProcessed: {
       type: Boolean,
       default: false,
