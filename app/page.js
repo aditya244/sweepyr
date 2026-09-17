@@ -191,7 +191,7 @@ export default function LandingPage() {
         </button>
 
         <p style={{ fontSize: "12px", color: "#9ca3af", marginTop: "16px" }}>
-          No credit card required · Free for 200 emails/month
+          No credit card required · Free for 100 emails a day
         </p>
       </section>
 
@@ -718,7 +718,7 @@ export default function LandingPage() {
             lineHeight: "1.7",
           }}
         >
-          Start free with 100 emails/month. Upgrade when you need more. No
+          Start free with 100 emails a day, up to 1,000 a month. Upgrade when you need more. No
           hidden fees, cancel anytime.
         </p>
         <div

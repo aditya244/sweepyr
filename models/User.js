@@ -43,6 +43,11 @@ const UserSchema = new mongoose.Schema(
       // credit (TESTER_CREDIT_SIZE emails, see lib/tierLimits.js). Never
       // read for any other tier.
       bonusCredits: { type: Number, default: 0 },
+      // Emails classified on the IST calendar day in dailyDate ('YYYY-MM-DD').
+      // Reset lazily by ensureFreshUsage in lib/tierLimits.js when the day
+      // changes. Only enforced for tiers listed in DAILY_LIMITS.
+      dailyCount: { type: Number, default: 0 },
+      dailyDate: { type: String, default: null },
     },
   },
   {

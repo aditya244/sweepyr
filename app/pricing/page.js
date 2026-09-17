@@ -10,7 +10,7 @@ const PLANS = [
     period: 'forever',
     description: 'Try it out, see the value',
     features: [
-      '100 emails cleanup/month',
+      '100 emails cleanup/day (up to 1,000/month)',
       '100 emails monitoring/month',
       'All 13 categories',
       'Archive, trash & label',

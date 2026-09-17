@@ -4,7 +4,7 @@ import connectDB from '../../../../lib/mongoose'
 import User from '../../../../models/User'
 import Email from '../../../../models/Email'
 import { logError } from '../../../../lib/logger'
-import { getEffectiveLimit, ensureFreshUsage } from '../../../../lib/tierLimits'
+import { getQuota, ensureFreshUsage } from '../../../../lib/tierLimits'
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -22,8 +22,9 @@ export async function GET() {
 
     await ensureFreshUsage(user)
     const tier = user.tier || 'free'
-    const limit = getEffectiveLimit(user)
-    const used = user.usage?.cleanupCount || 0
+    // { used, limit, remaining, daily, limitedBy } — the same object
+    // /api/gmail/process enforces against, so display and enforcement agree.
+    const usage = getQuota(user)
 
     // Check if user has any processed exails
     const processedCount = await Email.countDocuments({
@@ -41,7 +42,7 @@ export async function GET() {
       hasScanned: totalCount > 0,
       hasClassified: processedCount > 0,
       tier,
-      usage: { used, limit, remaining: Math.max(0, limit - used) },
+      usage,
       memberSince: user.createdAt,
     })
 

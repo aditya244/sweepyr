@@ -102,6 +102,29 @@ const TIER_LABELS = {
   tester:    'Tester',
 }
 
+// "6h 12m" until an ISO timestamp. Rounds up to the minute, so it never shows
+// "0m" while there's still time left.
+function formatTimeUntil(iso, now) {
+  const ms = new Date(iso).getTime() - now
+  if (ms <= 0) return 'a moment'
+  const totalMinutes = Math.ceil(ms / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`
+}
+
+// The quota line shown next to the plan badge (non-tester tiers). Tiers with a
+// daily cap lead with today's number, since that's the one that decides whether
+// the next scan runs; the monthly pool follows as context.
+function usageLabel(usage, now) {
+  const monthly = `${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} emails used this month`
+  if (!usage.daily) return monthly
+  const { used, limit, resetsAt } = usage.daily
+  const resets = used > 0 && resetsAt ? ` · resets in ${formatTimeUntil(resetsAt, now)}` : ''
+  return `${used} of ${limit} used today${resets} · ${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} this month`
+}
+
 export default function CategorySummary({
   onCategorySelect,
   emailCount,
@@ -124,11 +147,39 @@ export default function CategorySummary({
   onStatsRefresh,
 }) {
   const [limitReached, setLimitReached] = useState(false);
+  // { period, resetsAt } from a USAGE_LIMIT_REACHED event. Takes precedence
+  // over `usage` because it's fresher: it arrives the moment a scan is refused,
+  // before the parent's /api/user/status refetch comes back.
+  const [limitDetail, setLimitDetail] = useState(null);
   const [backlogMessage, setBacklogMessage] = useState(null);
   const [grantingCredit, setGrantingCredit] = useState(false);
   const outOfQuota = limitReached || (usage && usage.remaining <= 0);
+  const limitedBy = limitDetail?.period ?? usage?.limitedBy ?? null;
+  const dailyResetsAt = limitDetail?.resetsAt ?? usage?.daily?.resetsAt ?? null;
+  const dailyLimit = usage?.daily?.limit ?? null;
   const testerCreditSize = TIER_BATCH_OPTIONS.tester[0];
   const testerCreditsRemaining = usage ? Math.floor(usage.remaining / testerCreditSize) : 0;
+
+  // Clock for the "resets in 6h 12m" countdown. Ticks once a minute, and only
+  // while today's allowance is the thing blocking a scan. When midnight IST
+  // passes, re-fetch usage so the scan button comes back without a page reload.
+  const [now, setNow] = useState(() => Date.now());
+  const waitingForDailyReset = outOfQuota && limitedBy === 'daily' && dailyResetsAt;
+  useEffect(() => {
+    if (!waitingForDailyReset) return;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= new Date(dailyResetsAt).getTime()) {
+        setLimitReached(false);
+        setLimitDetail(null);
+        onUsageRefresh?.();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, [waitingForDailyReset, dailyResetsAt]);
 
   async function getMoreTesterCredit() {
     try {
@@ -137,6 +188,7 @@ export default function CategorySummary({
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setLimitReached(false);
+      setLimitDetail(null);
       onUsageRefresh?.();
     } catch (err) {
       setError(err.message);
@@ -212,6 +264,7 @@ export default function CategorySummary({
     try {
       setError(null);
       setLimitReached(false);
+      setLimitDetail(null);
       setBacklogMessage(null);
       setScanDone(false);
       setClassifyResult(null);
@@ -236,8 +289,12 @@ export default function CategorySummary({
 
         if (data.error === 'USAGE_LIMIT_REACHED') {
           setLimitReached(true);
+          setLimitDetail({ period: data.period ?? null, resetsAt: data.resetsAt ?? null });
           setProgress(null);
           eventSource.close();
+          // Sync the parent's usage too, so the quota line matches the
+          // refusal instead of showing a stale "40 of 100 used today".
+          onUsageRefresh?.();
           return;
         }
 
@@ -390,7 +447,7 @@ export default function CategorySummary({
       )}
       {usage && tier !== 'tester' && (
         <span style={{ fontSize: '11px', color: '#9ca3af' }}>
-          {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
+          {usageLabel(usage, now)}
         </span>
       )}
     </p>
@@ -468,7 +525,7 @@ export default function CategorySummary({
     )}
     {usage && tier !== 'tester' && (
       <span style={{ fontSize: '11px', color: '#9ca3af' }}>
-        {usage.used.toLocaleString()} of {usage.limit.toLocaleString()} emails used this month
+        {usageLabel(usage, now)}
       </span>
     )}
 
@@ -546,6 +603,24 @@ export default function CategorySummary({
           >
             {grantingCredit ? 'Adding credit…' : `+ Get 1 more credit (${testerCreditSize} emails)`}
           </button>
+        </div>
+      ) : !progress && outOfQuota && limitedBy === 'daily' ? (
+        // Today's allowance spent, monthly pool still has room. Framed as
+        // "come back", not "upgrade": this is the daily-return loop working as
+        // intended, so it's teal (normal state), not amber (warning).
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: '#f0fdfa',
+          border: '1px solid #99f6e4',
+          borderRadius: '8px',
+          fontSize: '13px',
+          color: '#0f766e',
+          lineHeight: '1.5',
+        }}>
+          <strong>You've sorted today's {dailyLimit ?? 100} emails.</strong>{' '}
+          {dailyLimit ?? 100} more unlock at midnight
+          {dailyResetsAt ? ` (in ${formatTimeUntil(dailyResetsAt, now)})` : ''}.
+          {classifyResult && ' Meanwhile, clean up what’s already sorted below.'}
         </div>
       ) : !progress && outOfQuota ? (
         <div style={{

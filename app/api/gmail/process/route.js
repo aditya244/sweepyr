@@ -6,7 +6,7 @@ import Email from "../../../../models/Email";
 import { getMessageIds, getEmailMetadata } from "../../../../lib/gmail";
 import { classifyEmail } from "../../../../lib/classifier/index";
 import { logError, logInfo, logWarning } from '../../../../lib/logger';
-import { getEffectiveLimit, ensureFreshUsage, MAX_UNACTIONED_BACKLOG } from '../../../../lib/tierLimits';
+import { getQuota, ensureFreshUsage, MAX_UNACTIONED_BACKLOG } from '../../../../lib/tierLimits';
 
 export async function GET(request) {
   console.log("=== SSE route hit ===");
@@ -58,18 +58,27 @@ export async function GET(request) {
       await ensureFreshUsage(user);
 
       const userTier = user.tier || "free";
-      const cleanupLimit = getEffectiveLimit(user);
-      const alreadyUsed = user.usage.cleanupCount || 0;
-      const remaining = Math.max(0, cleanupLimit - alreadyUsed);
+      const quota = getQuota(user);
+      const alreadyUsed = quota.used;
+      const alreadyUsedToday = user.usage.dailyCount || 0;
 
-      if (remaining <= 0) {
+      if (quota.remaining <= 0) {
+        let message;
+        if (userTier === "tester") {
+          message = "You've used all your testing credits.";
+        } else if (quota.limitedBy === "daily") {
+          message = `You've used today's ${quota.daily.limit} emails. ${quota.daily.limit} more unlock at midnight.`;
+        } else {
+          message = `You've used all ${quota.limit} emails included in your ${userTier} plan this month.`;
+        }
         send({
           error: "USAGE_LIMIT_REACHED",
-          message:
-            userTier === "tester"
-              ? "You've used all your testing credits."
-              : `You've used all ${cleanupLimit} emails included in your ${userTier} plan this month.`,
-          limit: cleanupLimit,
+          message,
+          // Lets the client show "come back at midnight" rather than an
+          // upgrade prompt when only today's allowance is spent.
+          period: quota.limitedBy,
+          resetsAt: quota.limitedBy === "daily" ? quota.daily.resetsAt : null,
+          limit: quota.limit,
           used: alreadyUsed,
         });
         controller.close();
@@ -95,7 +104,9 @@ export async function GET(request) {
         return;
       }
 
-      const batchSize = Math.min(requestedSize, remaining);
+      // quota.remaining is already the smaller of monthly-left and today-left,
+      // so a free user asking for 100 with 40 left today scans 40.
+      const batchSize = Math.min(requestedSize, quota.remaining);
 
       // ── Stage 1: Fetch message IDs — new-to-us only ─────────
       // Previously fetched whatever sat in the Gmail inbox regardless of
@@ -303,6 +314,10 @@ export async function GET(request) {
       // "emails processed" number shown on the dashboard could disagree.
       // Metering by `classified` makes them the same number everywhere.
       user.usage.cleanupCount = alreadyUsed + classified;
+      // Same net-new count against today's allowance. A scan that crosses
+      // midnight lands on the day it started; the next ensureFreshUsage
+      // call resets the counter for the new day.
+      user.usage.dailyCount = alreadyUsedToday + classified;
       await user.save();
 
       // ── Done ────────────────────────────────────────────────

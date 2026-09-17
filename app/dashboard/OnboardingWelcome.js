@@ -176,7 +176,7 @@ export default function OnboardingWelcome({ userName, onStartScan }) {
           marginTop: '12px',
           marginBottom: '0',
         }}>
-          Your first 100 emails are free · No credit card required
+          100 emails free every day · No credit card required
         </p>
 
       </div>
